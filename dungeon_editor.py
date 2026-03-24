@@ -21,7 +21,7 @@ DEFAULT_FLOORS = [
         "#.###.#.###.#####..#",
         "#.#...#...#.....#..#",
         "#.#.#####.#.###.#..#",
-        "#.#.....#.#.#S..#..#",
+        "#.#.....#.#.#G..#..#",
         "#.#####.#.#.#.###..#",
         "#.....M...#.#......#",
         "####################",
@@ -65,26 +65,27 @@ DEFAULT_FLOORS = [
         "#...#.....#.#.....#.#",
         "#.#.###.#.#.#####.#.#",
         "#.#...M.#.#.....#...#",
-        "#....S....D.........#",
+        "#....A....D.........#",
         "####################",
     ],
 ]
 
-PASSABLE_TILES = {".", "S", "M", " ", "<", ">"}
+PASSABLE_TILES = {".", "G", "A", "M", " ", "<", ">"}
 DIRECTIONS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 
 TILE_INFO: Dict[str, Tuple[str, int]] = {
     "#": ("wall", 1),
     ".": ("floor", 2),
     "D": ("door", 3),
-    "S": ("sword", 4),
+    "G": ("holy grail", 4),
+    "A": ("altar", 6),
     "M": ("monster", 5),
     ">": ("stairs down", 7),
     "<": ("stairs up", 7),
     " ": ("empty", 2),
 }
 
-PALETTE_ORDER = ["#", ".", "D", "S", "M", ">", "<", " "]
+PALETTE_ORDER = ["#", ".", "D", "G", "A", "M", ">", "<", " "]
 
 
 def normalize_floor_rows(rows: List[str]) -> List[List[str]]:
@@ -221,7 +222,8 @@ def verify_floor(grid: List[List[str]], floor_index: int, floor_count: int) -> L
         if len(row) != width:
             issues.append(f"Floor {floor_index + 1}: row {y} width differs from the first row.")
 
-    sword_positions: List[Tuple[int, int]] = []
+    grail_positions: List[Tuple[int, int]] = []
+    altar_positions: List[Tuple[int, int]] = []
     monster_positions: List[Tuple[int, int]] = []
     passable_positions: List[Tuple[int, int]] = []
     stair_up_positions: List[Tuple[int, int]] = []
@@ -231,8 +233,10 @@ def verify_floor(grid: List[List[str]], floor_index: int, floor_count: int) -> L
         for x, cell in enumerate(row):
             if cell not in TILE_INFO:
                 issues.append(f"Floor {floor_index + 1}: unknown tile '{cell}' at {x},{y}.")
-            if cell == "S":
-                sword_positions.append((x, y))
+            if cell == "G":
+                grail_positions.append((x, y))
+            elif cell == "A":
+                altar_positions.append((x, y))
             elif cell == "M":
                 monster_positions.append((x, y))
             elif cell == "<":
@@ -266,7 +270,7 @@ def verify_floor(grid: List[List[str]], floor_index: int, floor_count: int) -> L
         if grid[y][width - 1] in PASSABLE_TILES:
             issues.append(f"Floor {floor_index + 1}: right border leak at {width - 1},{y}.")
 
-    for x, y in sword_positions + monster_positions + stair_up_positions + stair_down_positions:
+    for x, y in grail_positions + altar_positions + monster_positions + stair_up_positions + stair_down_positions:
         if (x, y) not in reachable:
             tile_name = TILE_INFO[grid[y][x]][0]
             issues.append(f"Floor {floor_index + 1}: {tile_name} at {x},{y} is unreachable.")
@@ -285,7 +289,8 @@ def verify_floor(grid: List[List[str]], floor_index: int, floor_count: int) -> L
 
 def verify_floors(floors: List[List[List[str]]]) -> List[str]:
     issues: List[str] = []
-    sword_total = 0
+    grail_total = 0
+    altar_total = 0
     monster_total = 0
     up_total = 0
     down_total = 0
@@ -293,15 +298,21 @@ def verify_floors(floors: List[List[List[str]]]) -> List[str]:
     for floor_index, grid in enumerate(floors):
         issues.extend(verify_floor(grid, floor_index, len(floors)))
         for row in grid:
-            sword_total += row.count("S")
+            grail_total += row.count("G")
+            altar_total += row.count("A")
             monster_total += row.count("M")
             up_total += row.count("<")
             down_total += row.count(">")
 
-    if sword_total == 0:
-        issues.append("Dungeon has no sword.")
-    elif sword_total > 1:
-        issues.append(f"Dungeon has {sword_total} swords; expected 1.")
+    if grail_total == 0:
+        issues.append("Dungeon has no Holy Grail.")
+    elif grail_total > 1:
+        issues.append(f"Dungeon has {grail_total} Holy Grails; expected 1.")
+
+    if altar_total == 0:
+        issues.append("Dungeon has no altar.")
+    elif altar_total > 1:
+        issues.append(f"Dungeon has {altar_total} altars; expected 1.")
 
     if monster_total == 0:
         issues.append("Dungeon has no monsters.")
@@ -323,11 +334,17 @@ def cycle_tile(current: str, step: int) -> str:
 def place_tile(grid: List[List[str]], floors: List[List[List[str]]], floor_index: int, x: int, y: int, tile: str) -> None:
     if not is_inside(grid, x, y):
         return
-    if tile == "S":
+    if tile == "G":
         for floor in floors:
             for row in floor:
                 for index, value in enumerate(row):
-                    if value == "S":
+                    if value == "G":
+                        row[index] = "."
+    elif tile == "A":
+        for floor in floors:
+            for row in floor:
+                for index, value in enumerate(row):
+                    if value == "A":
                         row[index] = "."
     elif tile == ">":
         for row in grid:
@@ -356,7 +373,7 @@ def draw_grid(stdscr, grid: List[List[str]], cursor_x: int, cursor_y: int, top: 
             display = cell if cell != " " else "."
             if (x, y) == (cursor_x, cursor_y):
                 attr = curses.color_pair(9) | curses.A_BOLD
-            elif cell in {"S", "M", "D", "<", ">"}:
+            elif cell in {"G", "A", "M", "D", "<", ">"}:
                 attr |= curses.A_BOLD
             try:
                 stdscr.addch(top + y, left + x, display, attr)
@@ -399,9 +416,10 @@ def draw_sidebar(
         " arrows move cursor",
         " , and . change floor",
         " 1 wall   2 floor",
-        " 3 door   4 sword",
-        " 5 monster 6 stair down",
-        " 7 stair up 0 empty",
+        " 3 door   4 grail",
+        " 5 altar  6 monster",
+        " 7 stair down 8 stair up",
+        " 0 empty",
         " space/place current",
         " [ ] cycle tile",
         " v verify whole dungeon",
@@ -478,12 +496,14 @@ def run(stdscr) -> int:
         elif key == ord("3"):
             selected_tile = "D"
         elif key == ord("4"):
-            selected_tile = "S"
+            selected_tile = "G"
         elif key == ord("5"):
-            selected_tile = "M"
+            selected_tile = "A"
         elif key == ord("6"):
-            selected_tile = ">"
+            selected_tile = "M"
         elif key == ord("7"):
+            selected_tile = ">"
+        elif key == ord("8"):
             selected_tile = "<"
         elif key == ord("0"):
             selected_tile = " "

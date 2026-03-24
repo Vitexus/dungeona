@@ -25,15 +25,30 @@ FLOOR_COLOR = 238
 MAP_WALL_COLOR = 245
 PLAYER_COLOR = 46
 ENEMY_COLOR = 196
-SWORD_COLOR = 226
+GRAIL_COLOR = 226
 STAIR_COLOR = 159
+QUEST_COLOR = 93
 MAX_RENDER_DEPTH = 12.0
 FOV_SCALE = 0.85
 START_ENERGY = 12
 MAX_ENERGY = 12
-ATTACK_COST_WITH_SWORD = 1
-ATTACK_COST_NO_SWORD = 2
+ATTACK_COST_WITH_GRAIL = 1
+ATTACK_COST_NO_GRAIL = 2
 WAIT_ENERGY_GAIN = 1
+QUEST_ITEM_TILE = "G"
+QUEST_TARGET_TILE = "A"
+QUEST_ITEM_NAME = "Holy Grail"
+QUEST_START_FLOOR = 0
+QUEST_TARGET_FLOOR = 2
+MAX_CARRIED_ITEMS = 3
+CONGRATS_BANNER = [
+    "  ____                            _         _       _   _                 ",
+    " / ___|___  _ __   __ _ _ __ __ _| |_ _   _| | __ _| |_(_) ___  _ __  ___ ",
+    "| |   / _ \\| '_ \\ / _` | '__/ _` | __| | | | |/ _` | __| |/ _ \\| '_ \\/ __|",
+    "| |__| (_) | | | | (_| | | | (_| | |_| |_| | | (_| | |_| | (_) | | | \\__ \\",
+    " \\____\\___/|_| |_|\\__, |_|  \\__,_|\\__|\\__,_|_|\\__,_|\\__|_|\\___/|_| |_|___/",
+    "                  |___/                                                         ",
+] 
 
 DEFAULT_FLOORS: List[FloorMap] = [
     [
@@ -52,7 +67,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#.###.#.###.#####..#",
         "#.#...#...#.....#..#",
         "#.#.#####.#.###.#..#",
-        "#.#.....#.#.#S..#..#",
+        "#.#.....#.#.#G..#..#",
         "#.#####.#.#.#.###..#",
         "#.....M...#.#......#",
         "####################",
@@ -96,7 +111,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#...#.....#.#.....#.#",
         "#.#.###.#.#.#####.#.#",
         "#.#...M.#.#.....#...#",
-        "#....S....D.........#",
+        "#....A....D.........#",
         "####################",
     ],
 ]
@@ -158,8 +173,9 @@ def setup_colors() -> None:
     curses.init_pair(5, MAP_WALL_COLOR, -1)
     curses.init_pair(6, PLAYER_COLOR, -1)
     curses.init_pair(7, ENEMY_COLOR, -1)
-    curses.init_pair(8, SWORD_COLOR, -1)
+    curses.init_pair(8, GRAIL_COLOR, -1)
     curses.init_pair(9, STAIR_COLOR, -1)
+    curses.init_pair(10, QUEST_COLOR, -1)
 
 
 def current_grid(state: Dict[str, object]) -> Grid:
@@ -179,7 +195,7 @@ def cell_at(grid: Grid, x: int, y: int) -> str:
 
 
 def is_passable(cell: str) -> bool:
-    return cell in {".", " ", "S", "M", "<", ">"}
+    return cell in {".", " ", QUEST_ITEM_TILE, "M", "<", ">", QUEST_TARGET_TILE}
 
 
 def facing_vector(facing: int) -> Tuple[float, float]:
@@ -294,8 +310,12 @@ def enemy_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[i
     return find_visible_tile(grid, px, py, facing, "M")
 
 
-def sword_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int]]:
-    return find_visible_tile(grid, px, py, facing, "S")
+def grail_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int]]:
+    return find_visible_tile(grid, px, py, facing, QUEST_ITEM_TILE)
+
+
+def altar_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int]]:
+    return find_visible_tile(grid, px, py, facing, QUEST_TARGET_TILE)
 
 
 def stairs_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int, str]]:
@@ -334,17 +354,17 @@ def render_enemy_sprite(items: List[DrawItem], width: int, height: int, distance
                 items.append((sy, start_x + target_col, ch, 7))
 
 
-def render_sword_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int) -> None:
+def render_grail_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int) -> None:
     perspective_scale = max(0.45, 2.0 / (distance + 0.2))
     perspective_scale *= 1.18 if side == 0 else 0.72
     center_x = width // 2 + side * max(2, width // max(10, 11 + distance * 2))
     floor_y = height - 4
     sprite = [
-        "  /  ",
-        " /   ",
-        "/    ",
-        "||== ",
-        "||   ",
+        " .^. ",
+        "(===)",
+        " \\_/ ",
+        "  |  ",
+        " _|_ ",
     ]
     sprite_height = max(2, int(round(len(sprite) * perspective_scale)))
     sprite_width = max(2, int(round(len(sprite[0]) * perspective_scale * (0.92 if side == 0 else 0.82))))
@@ -360,6 +380,32 @@ def render_sword_sprite(items: List[DrawItem], width: int, height: int, distance
             ch = row[source_col]
             if ch != " ":
                 items.append((sy, start_x + target_col, ch, 8))
+
+
+def render_altar_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int) -> None:
+    perspective_scale = max(0.48, 2.1 / (distance + 0.25))
+    center_x = width // 2 + side * max(2, width // max(10, 11 + distance * 2))
+    floor_y = height - 4
+    sprite = [
+        " _____ ",
+        "/_A_A_\\",
+        "|_____|",
+        "  |_|  ",
+    ]
+    sprite_height = max(2, int(round(len(sprite) * perspective_scale)))
+    sprite_width = max(3, int(round(len(sprite[0]) * perspective_scale)))
+    sprite_top = max(1, floor_y - sprite_height + 1)
+
+    for target_row in range(sprite_height):
+        source_row = min(len(sprite) - 1, int(target_row / max(0.001, perspective_scale)))
+        row = sprite[source_row]
+        sy = sprite_top + target_row
+        start_x = center_x - sprite_width // 2
+        for target_col in range(sprite_width):
+            source_col = min(len(row) - 1, int(target_col / max(0.001, sprite_width / len(row))))
+            ch = row[source_col]
+            if ch != " ":
+                items.append((sy, start_x + target_col, ch, 10))
 
 
 def render_stairs_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int, tile: str) -> None:
@@ -440,10 +486,15 @@ def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: i
         distance, side, _, tile = visible_stairs
         render_stairs_sprite(items, width, height, distance, side, tile)
 
-    visible_sword = sword_in_view(grid, px, py, facing)
-    if visible_sword is not None:
-        distance, side, _ = visible_sword
-        render_sword_sprite(items, width, height, distance, side)
+    visible_grail = grail_in_view(grid, px, py, facing)
+    if visible_grail is not None:
+        distance, side, _ = visible_grail
+        render_grail_sprite(items, width, height, distance, side)
+
+    visible_altar = altar_in_view(grid, px, py, facing)
+    if visible_altar is not None:
+        distance, side, _ = visible_altar
+        render_altar_sprite(items, width, height, distance, side)
 
     visible_enemy = enemy_in_view(grid, px, py, facing)
     if visible_enemy is not None:
@@ -477,9 +528,12 @@ def draw_minimap(stdscr, grid: Grid, px: int, py: int, facing: int, floor_index:
             elif ch == "M":
                 char = "MM"
                 attr = curses.color_pair(7) | curses.A_BOLD
-            elif ch == "S":
-                char = "/="
+            elif ch == QUEST_ITEM_TILE:
+                char = "GG"
                 attr = curses.color_pair(8) | curses.A_BOLD
+            elif ch == QUEST_TARGET_TILE:
+                char = "AA"
+                attr = curses.color_pair(10) | curses.A_BOLD
             elif ch == ">":
                 char = ">>"
                 attr = curses.color_pair(9) | curses.A_BOLD
@@ -501,13 +555,47 @@ def draw_minimap(stdscr, grid: Grid, px: int, py: int, facing: int, floor_index:
         pass
 
 
+def inventory_count(state: Dict[str, object]) -> int:
+    return 1 if bool(state["has_grail"]) else 0
+
+
+def can_pick_item(state: Dict[str, object]) -> bool:
+    return inventory_count(state) < MAX_CARRIED_ITEMS
+
+
+def deliver_quest_if_possible(state: Dict[str, object], grid: Grid) -> bool:
+    x = int(state["x"])
+    y = int(state["y"])
+    if (
+        cell_at(grid, x, y) == QUEST_TARGET_TILE
+        and bool(state["has_grail"])
+        and not bool(state["quest_complete"])
+        and int(state["floor"]) == QUEST_TARGET_FLOOR
+    ):
+        state["has_grail"] = False
+        state["quest_complete"] = True
+        state["show_congrats_banner"] = True
+        state["message"] = f"You place the {QUEST_ITEM_NAME} on the altar. Quest complete!"
+        return True
+    return False
+
+
 def collect_tile(state: Dict[str, object], grid: Grid) -> None:
     x = int(state["x"])
     y = int(state["y"])
-    if cell_at(grid, x, y) == "S":
-        grid[y][x] = "."
-        state["has_sword"] = True
-        state["message"] = "You take the sword. Fighting is now easier."
+    if cell_at(grid, x, y) == QUEST_ITEM_TILE:
+        if can_pick_item(state):
+            grid[y][x] = "."
+            state["has_grail"] = True
+            state["message"] = (
+                f"You take the {QUEST_ITEM_NAME}. "
+                f"Inventory {inventory_count(state)}/{MAX_CARRIED_ITEMS}. "
+                f"Bring it to floor {QUEST_TARGET_FLOOR + 1}."
+            )
+        else:
+            state["message"] = f"Your inventory is full ({inventory_count(state)}/{MAX_CARRIED_ITEMS})."
+    else:
+        deliver_quest_if_possible(state, grid)
 
 
 def try_move(state: Dict[str, object], step: int) -> None:
@@ -562,8 +650,8 @@ def use_action(state: Dict[str, object]) -> str:
         grid[ty][tx] = "."
         return "You open the door."
     if target == "M":
-        has_sword = bool(state["has_sword"])
-        cost = ATTACK_COST_WITH_SWORD if has_sword else ATTACK_COST_NO_SWORD
+        has_grail = bool(state["has_grail"])
+        cost = ATTACK_COST_WITH_GRAIL if has_grail else ATTACK_COST_NO_GRAIL
         energy = int(state["energy"])
         if energy < cost:
             return "Too tired to fight. Wait to regain some energy."
@@ -571,10 +659,23 @@ def use_action(state: Dict[str, object]) -> str:
         grid[ty][tx] = "."
         state["score"] = int(state["score"]) + 1
         return f"You defeat the enemy. Energy -{cost}."
-    if target == "S":
+    if target == QUEST_ITEM_TILE:
+        if not can_pick_item(state):
+            return f"Your inventory is full ({inventory_count(state)}/{MAX_CARRIED_ITEMS})."
         grid[ty][tx] = "."
-        state["has_sword"] = True
-        return "You take the sword."
+        state["has_grail"] = True
+        return f"You take the {QUEST_ITEM_NAME}. Inventory {inventory_count(state)}/{MAX_CARRIED_ITEMS}."
+    if target == QUEST_TARGET_TILE:
+        if int(state["floor"]) != QUEST_TARGET_FLOOR:
+            return "This altar is dormant."
+        if bool(state["quest_complete"]):
+            return "The altar has already received the grail."
+        if bool(state["has_grail"]):
+            state["has_grail"] = False
+            state["quest_complete"] = True
+            state["show_congrats_banner"] = True
+            return f"You place the {QUEST_ITEM_NAME} on the altar. Quest complete!"
+        return f"You need the {QUEST_ITEM_NAME}."
     if target == ">":
         return travel_stairs(state, 1)
     if target == "<":
@@ -585,6 +686,8 @@ def use_action(state: Dict[str, object]) -> str:
 def use_current_tile(state: Dict[str, object]) -> bool:
     grid = current_grid(state)
     tile = cell_at(grid, int(state["x"]), int(state["y"]))
+    if deliver_quest_if_possible(state, grid):
+        return True
     if tile == ">":
         state["message"] = travel_stairs(state, 1)
         return True
@@ -594,23 +697,53 @@ def use_current_tile(state: Dict[str, object]) -> bool:
     return False
 
 
+def draw_banner_overlay(stdscr, lines: List[str], color: int) -> None:
+    height, width = stdscr.getmaxyx()
+    box_width = min(width - 4, max(len(line) for line in lines) + 4)
+    box_height = min(height - 4, len(lines) + 4)
+    left = max(2, (width - box_width) // 2)
+    top = max(1, (height - box_height) // 2)
+
+    for y in range(top, top + box_height):
+        for x in range(left, left + box_width):
+            ch = " "
+            if y in {top, top + box_height - 1}:
+                ch = "#"
+            elif x in {left, left + box_width - 1}:
+                ch = "#"
+            try:
+                stdscr.addch(y, x, ch, curses.color_pair(color) | curses.A_BOLD)
+            except curses.error:
+                pass
+
+    for index, line in enumerate(lines):
+        sy = top + 2 + index
+        sx = left + max(2, (box_width - len(line)) // 2)
+        if 0 <= sy < height:
+            try:
+                stdscr.addstr(sy, sx, line[: max(0, width - sx - 1)], curses.color_pair(color) | curses.A_BOLD)
+            except curses.error:
+                pass
+
+
 def draw_scene(stdscr, state: Dict[str, object]) -> None:
     grid = current_grid(state)
     height, width = stdscr.getmaxyx()
     stdscr.erase()
 
-    title = " ANSI Dungeon - SQLite map "
+    title = " ANSI Dungeon - Holy Grail Quest "
     energy = int(state["energy"])
     filled = max(0, min(MAX_ENERGY, energy))
     empty = max(0, MAX_ENERGY - filled)
     health_bar = "[" + ("#" * filled) + ("-" * empty) + "]"
+    quest_status = "done" if bool(state["quest_complete"]) else ("carrying" if bool(state["has_grail"]) else "missing")
     status = (
         f" {health_bar} {energy}/{MAX_ENERGY}"
         f" floor:{int(state['floor']) + 1}/{len(state['floors'])}"
         f" pos:{state['x']},{state['y']} facing:{DIRECTION_NAMES[int(state['facing'])]}"
-        f" sword:{'yes' if bool(state['has_sword']) else 'no'} defeated:{state['score']} "
+        f" items:{inventory_count(state)}/{MAX_CARRIED_ITEMS} grail:{quest_status} defeated:{state['score']} "
     )
-    help_text = " arrows/WASD move | q/e turn | z/c strafe | space act | . wait | m map | x quit "
+    help_text = " arrows/WASD move | q/e turn | z/c strafe | space act | . wait | m map | x quit | quest: take grail to altar "
     view_height = max(6, height - 3)
 
     if width > len(title) + 2:
@@ -623,7 +756,7 @@ def draw_scene(stdscr, state: Dict[str, object]) -> None:
         if 1 <= y < height - 3 and 0 <= x < width:
             try:
                 attr = curses.color_pair(color)
-                if color in (2, 3, 7, 8, 9):
+                if color in (2, 3, 7, 8, 9, 10):
                     attr |= curses.A_BOLD
                 stdscr.addch(y, x, ch, attr)
             except curses.error:
@@ -645,12 +778,15 @@ def draw_scene(stdscr, state: Dict[str, object]) -> None:
     except curses.error:
         pass
 
+    if bool(state.get("show_congrats_banner")):
+        draw_banner_overlay(stdscr, CONGRATS_BANNER, 8)
+
 
 def find_start_position(floors: List[Grid]) -> Tuple[int, int, int]:
     for floor_index, grid in enumerate(floors):
         for y, row in enumerate(grid):
             for x, cell in enumerate(row):
-                if cell in {".", "S", "<", ">", "M", " "}:
+                if cell in {".", QUEST_ITEM_TILE, "<", ">", "M", " ", QUEST_TARGET_TILE}:
                     return floor_index, x, y
     return 0, 1, 1
 
@@ -671,9 +807,11 @@ def run(stdscr) -> int:
         "facing": 1,
         "energy": START_ENERGY,
         "score": 0,
-        "has_sword": False,
+        "has_grail": False,
+        "quest_complete": False,
         "show_map": True,
-        "message": f"Loaded dungeon from {DB_PATH.name}.",
+        "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}.",
+        "show_congrats_banner": False,
     }
     collect_tile(state, current_grid(state))
 
@@ -681,6 +819,12 @@ def run(stdscr) -> int:
         draw_scene(stdscr, state)
         stdscr.refresh()
         key = stdscr.getch()
+
+        if bool(state.get("show_congrats_banner")):
+            state["show_congrats_banner"] = False
+            if key in (ord("x"), ord("X")):
+                break
+            continue
 
         if key in (ord("x"), ord("X")):
             break

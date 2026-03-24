@@ -9,6 +9,8 @@ the built-in curses module. It renders a pseudo-3D first-person dungeon
 view in ASCII/ANSI style and includes a separate terminal map editor 
 for changing the dungeon layout stored in a SQLite database.
 
+[Donate](https://paypal.me/michtatton)
+
 Project contents
 ----------------
 dungeona.py        Main game

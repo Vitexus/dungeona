@@ -1,9 +1,23 @@
+#!/usr/bin/env python3
+import os
 import curses
 import sqlite3
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-DB_PATH = Path(__file__).with_name("dungeon_map.db")
+def _get_user_db_path() -> Path:
+    xdg = os.environ.get('XDG_DATA_HOME')
+    if xdg:
+        data_dir = Path(xdg)
+    else:
+        data_dir = Path.home() / '.local' / 'share'
+    d = data_dir / 'dungeona'
+    d.mkdir(parents=True, exist_ok=True)
+    return d / 'dungeon_map.db'
+
+# Use per-user data directory for the map DB so system-wide installs
+# do not attempt to write under /usr/lib
+DB_PATH = _get_user_db_path()
 DEFAULT_MAP_DATA = [
     "####################",
     "#..D.....#........##",

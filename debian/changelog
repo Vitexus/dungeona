@@ -1,0 +1,5 @@
+dungeona (0.1.0-1) unstable; urgency=low
+
+  * Initial Debian package.
+
+ -- Vítězslav Dvořák <info@vitexsoftware.cz>  Tue, 24 Mar 2026 15:06:58 +0100

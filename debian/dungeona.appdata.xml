@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>org.vitex.dungeona</id>
+  <name>Dungeona</name>
+  <summary>ANSI dungeon crawler with a simple map editor</summary>
+  <description>
+    <![CDATA[
+    Dungeona is a small, terminal-based dungeon crawler and map editor written
+    in Python. Run the `dungeona` console program to play the game. The
+    application stores a small SQLite map database and renders a compact
+    pseudo-3D view in a terminal using curses.
+    ]]>
+  </description>
+  <launchable type="console">
+    <exec>dungeona</exec>
+    <terminal>true</terminal>
+  </launchable>
+  <project_license>MIT</project_license>
+  <url type="homepage">https://example.com/dungeona</url>
+  <icon>dungeona</icon>
+  <metadata_license>CC0-1.0</metadata_license>
+  <developer_name>mtatton</developer_name>
+  <screenshots>
+    <!-- No screenshots for console app -->
+  </screenshots>
+  <categories>
+    <category>Game</category>
+    <category>ConsoleOnly</category>
+  </categories>
+</component>

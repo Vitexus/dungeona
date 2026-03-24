@@ -1,0 +1,19 @@
+# Source package information
+Source: dungeona
+Section: games
+Priority: optional
+Maintainer: Vítězslav Dvořák <info@vitexsoftware.cz>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all
+Standards-Version: 4.7.0
+Homepage: https://example.com/dungeona
+Rules-Requires-Root: no
+#Vcs-Git: https://salsa.debian.org/debian/dungeona.git
+#Vcs-Browser: https://salsa.debian.org/debian/dungeona
+
+Package: dungeona
+# This package installs pure-Python scripts; mark as arch: all
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, libncursesw6, libsqlite3-0
+Description: lightweight dungeon game and editor (Python)
+ Dungeona is a small dungeon-crawling game with a simple map editor.
+ It is packaged as Python scripts and supporting data files.

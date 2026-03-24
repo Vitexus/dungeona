@@ -1,6 +1,8 @@
 DUNGEONA
 =========
 
+![game screenshot](game-screenshot.png?raw=true)
+
 Overview
 --------
 
@@ -116,6 +118,24 @@ Notes
 - If the database is empty, the scripts populate it with a default map.
 - The editor enforces a single sword when placing a new sword tile.
 - Monsters are normalized onto walkable cells when the game starts.
+
+
+Debian/Ubuntu Package Installation
+----------------------------------
+
+There is a repository available for Debian/Ubuntu Linux distributions:
+
+```shell
+# Add VitexSoftware repository
+sudo apt install lsb-release wget apt-transport-https bzip2
+
+wget -qO- https://repo.vitexsoftware.com/KEY.gpg | sudo tee /etc/apt/trusted.gpg.d/vitexsoftware.gpg
+echo "deb [signed-by=/etc/apt/trusted.gpg.d/vitexsoftware.gpg]  https://repo.vitexsoftware.com  $(lsb_release -sc) games" | sudo tee /etc/apt/sources.list.d/vitexsoftware-games.list
+sudo apt update
+
+# Install the package
+sudo apt install dungeona
+```
 
 License
 -------

@@ -3,39 +3,46 @@ DUNGEONA
 
 Overview
 --------
-Dungeona is a terminal dungeon crawler written in Python with the built-in
-curses module. It renders a pseudo-3D first-person ASCII view, stores dungeon
-data in SQLite, and includes a separate terminal editor for building and
-validating dungeon floors.
+Dungeona is a small terminal dungeon crawler written in Python using the
+built-in curses module. It renders a pseudo-3D first-person dungeon view in
+ASCII/ANSI style and includes a separate terminal map editor for changing the
+dungeon layout stored in a SQLite database.
 
 [Donate](https://paypal.me/michtatton)
 
 Project contents
 ----------------
 dungeona.py        Main game
-dungeon_editor.py  Terminal editor and dungeon validator
+dungeon_editor.py  Map editor and validator
 dungeon_map.db     SQLite database containing dungeon floor rows
 license.txt        Donationware license
 readme.txt         This file
 
-Features
---------
-- First-person ASCII dungeon exploration
-- Three connected dungeon floors in the default data set
-- Doors that can be opened from the tile directly ahead
-- Monsters that cost energy to defeat
-- A sword pickup that reduces combat energy cost
-- Stairs for moving between floors
-- Toggleable minimap with player position and facing direction
-- SQLite-backed dungeon storage
-- Built-in dungeon editor with verification tools
+Current project behavior
+------------------------
+This repository currently has two different dungeon data paths:
+
+- dungeona.py uses the built-in FLOORS constant inside the game script.
+- dungeon_editor.py reads from and writes to dungeon_map.db.
+
+That means editor changes saved to dungeon_map.db do not affect the current
+game script unless dungeona.py is updated to load the database as well.
+
+Gameplay summary
+----------------
+- Explore a three-floor dungeon from a first-person view.
+- Open doors.
+- Pick up the sword to reduce combat cost.
+- Defeat monsters while managing energy.
+- Travel between floors with stair tiles.
+- Toggle the minimap as needed.
 
 Requirements
 ------------
-- Python 3.10 or newer recommended
-- A terminal with curses support
-- No third-party packages required on Linux or macOS
-- On Windows, install curses support first:
+- Python 3.10+ recommended
+- A terminal that supports curses and ANSI-style character rendering
+- No third-party Python packages are required on Linux/macOS
+- On Windows, you may need the windows-curses package for curses support:
 
   pip install windows-curses
 
@@ -45,23 +52,23 @@ From the project folder:
 
   python dungeona.py
 
-To open the dungeon editor:
+To open the map editor:
 
   python dungeon_editor.py
 
-Game summary
-------------
-The game loads all dungeon floors from dungeon_map.db and starts on the first
-walkable tile it finds. You explore in first-person view, manage energy, fight
-monsters, collect the sword, open doors, and move between floors with stairs.
+Game data used by dungeona.py
+-----------------------------
+The main game currently starts from the built-in FLOORS list in dungeona.py.
+It does not load dungeon_map.db.
 
-By default, the dungeon contains three floors linked by stair tiles:
-- >  stairs down
-- <  stairs up
+The default in-code dungeon contains:
+- 3 floors
+- doors (D)
+- monsters (M)
+- one sword (S)
+- stairs down (>) and stairs up (<)
 
-The minimap can be shown or hidden during play. The status line displays
-current energy, floor number, map position, facing direction, sword status,
-and defeated enemy count.
+The player starts on floor 1 at position 1,1, facing east.
 
 Game controls
 -------------
@@ -74,29 +81,46 @@ Movement and view:
 - C                Strafe right
 
 Actions:
-- Space / Enter    Interact with the tile ahead
-- .                Wait and regain 1 energy
+- Space            Interact with the tile directly ahead
+                   (open door / attack / pick up sword / use stairs)
+- . or >           Go down when standing on a > stair tile
+- <                Go up when standing on a < stair tile
+- ,                Wait and recover 1 energy
 - M                Toggle minimap
-- >                Use stairs down immediately
-- <                Use stairs up immediately
 - X                Quit
 
-Gameplay rules
---------------
-- Energy starts at 12 and is capped at 12.
-- Waiting restores 1 energy.
-- Defeating a monster costs:
-  - 2 energy without the sword
-  - 1 energy with the sword
-- Picking up the sword updates future combat cost.
-- The sword is collected automatically if you step onto its tile.
-- Doors open when you interact with a door tile directly in front of you.
-- Using stairs moves you to the matching stair tile on the adjacent floor.
-- Defeated monsters increase the on-screen score counter.
+Notes:
+- Moving onto a stair tile also triggers stair travel automatically.
+- Space can also use stairs if the stair tile is directly in front of you.
 
-Dungeon data
+Game systems
 ------------
-Dungeon data is stored in dungeon_map.db in the table:
+- Energy starts at 12 and caps at 12.
+- Waiting restores 1 energy.
+- Fighting costs:
+  - 1 energy with the sword
+  - 2 energy without the sword
+- Enemies defeated increase the score counter.
+- Doors can be opened from the tile directly in front of the player.
+- Picking up the sword is permanent for the current run and removes the sword
+  tile from the map.
+- The status line shows energy, floor, position, facing direction, sword
+  status, and defeated enemy count.
+
+Tile meanings
+-------------
+- #  Wall
+- .  Floor
+- D  Door
+- S  Sword
+- M  Monster
+- >  Stairs down
+- <  Stairs up
+- (space) Empty/passable area
+
+Map editor data
+---------------
+The editor stores dungeon data in dungeon_map.db using the table:
 
   floor_map_rows
 
@@ -105,25 +129,32 @@ Columns:
 - row_index     Zero-based row number within that floor
 - row_text      Raw text for the row
 
-If the database is empty, the game and editor populate it with the built-in
-default floors.
+If the database is empty, the editor creates floor_map_rows and populates it
+with the built-in default three-floor map set.
 
-Tile reference
---------------
-- #  Wall
-- .  Floor
-- D  Door
-- S  Sword
-- M  Monster
-- >  Stairs down
-- <  Stairs up
-- (space) Empty walkable tile
+Legacy compatibility:
+- The editor can also read an older single-floor table named map_rows.
+- When loading legacy data, it pads the missing floors with defaults until
+  there are three floors.
 
-Dungeon editor
---------------
-The editor lets you inspect and modify dungeon floors stored in the database.
-It can switch between floors, place tiles, verify the dungeon, and save changes
-back to dungeon_map.db.
+Rows are normalized into rectangular floor grids when loaded. Shorter rows are
+padded on the right with wall tiles (#).
+
+Editor features
+---------------
+The editor lets you place tiles, switch floors, save the dungeon, and run
+validation checks across all floors.
+
+Validation looks for issues such as:
+- inconsistent row widths before normalization
+- missing sword
+- missing monsters
+- unreachable walkable tiles
+- unreachable sword, monsters, or stairs
+- leaks in the outer border
+- unknown tile values
+- invalid stair placement by floor
+- missing or extra up/down stair links across the dungeon
 
 Editor controls
 ---------------
@@ -140,35 +171,26 @@ Editor controls
 - 0                Empty space
 - [ or ]           Cycle selected tile
 - Space / Enter    Place selected tile
-- V                Verify the whole dungeon
-- S                Save to dungeon_map.db
+- P                Place selected tile
+- V                Verify whole dungeon
+- S                Save map to dungeon_map.db
 - Q                Quit editor
 
-Editor behavior and validation
-------------------------------
-- The editor maintains exactly one sword across the full dungeon.
-- Each floor can have at most one upstairs tile and one downstairs tile.
+Editor rules
+------------
+- The editor enforces exactly one sword across the full dungeon by removing any
+  existing sword before placing a new one.
+- Each floor keeps at most one upstairs tile and one downstairs tile.
 - Upstairs cannot be placed on floor 1.
 - Downstairs cannot be placed on the final floor.
-- Verification checks for:
-  - empty maps
-  - inconsistent row widths
-  - unknown tile values
-  - unreachable walkable tiles
-  - unreachable sword or monsters
-  - leaks on the outer border
-  - missing or extra stair links across floors
-  - missing sword
-  - missing monsters
 
 Notes
 -----
-- Empty space is displayed as . in the editor for visibility, but it is stored
-  as a literal space character in the map.
-- The editor can read legacy single-floor data from a map_rows table, but the
-  current game data format is the multi-floor floor_map_rows table.
-- If you change the database outside the editor, keep stair links consistent
-  between floors.
+- Empty space is shown as . in the editor for visibility, but the actual stored
+  tile is a space character.
+- The game and editor currently are not synchronized to the same map source.
+  The editor saves to dungeon_map.db, while the main game still uses the
+  hard-coded FLOORS data in dungeona.py.
 
 License
 -------

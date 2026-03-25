@@ -1,10 +1,17 @@
+dungeona (0.3.0) UNRELEASED; urgency=medium
+
+  * multi level
+
+ -- vitex <info@vitexsoftware.cz>  Wed, 25 Mar 2026 22:36:38 +0100
+
 dungeona (0.2.0-1) trixie; urgency=low
 
+  [ Jules ]
   * Merge upstream version with multi-floor support.
   * Update scripts to use per-user database path natively.
   * Target Debian 13 (Trixie).
 
- -- Jules <jules@example.com>  Tue, 24 Mar 2026 18:53:12 +0000
+ -- vitex <info@vitexsoftware.cz>  Wed, 25 Mar 2026 22:36:26 +0100
 
 dungeona (0.1.0-1) unstable; urgency=low
 

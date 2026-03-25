@@ -48,7 +48,47 @@ CONGRATS_BANNER = [
     "| |__| (_) | | | | (_| | | | (_| | |_| |_| | | (_| | |_| | (_) | | | \\__ \\",
     " \\____\\___/|_| |_|\\__, |_|  \\__,_|\\__|\\__,_|_|\\__,_|\\__|_|\\___/|_| |_|___/",
     "                  |___/                                                         ",
-] 
+]
+
+MONSTER_TYPES: Dict[str, Dict[str, object]] = {
+    "R": {
+        "name": "rat",
+        "color": 7,
+        "map": "rr",
+        "sprite": [
+            " /^-\\",
+            "(o.o )",
+            " /|\\~",
+        ],
+        "defeat": "You skewer the giant rat.",
+    },
+    "S": {
+        "name": "skeleton",
+        "color": 10,
+        "map": "SK",
+        "sprite": [
+            " .-. ",
+            "(o o)",
+            " |#| ",
+            " / \\",
+        ],
+        "defeat": "You shatter the skeleton.",
+    },
+    "O": {
+        "name": "ogre",
+        "color": 2,
+        "map": "OG",
+        "sprite": [
+            " /^^\\ ",
+            "( ** )",
+            " /##\\ ",
+            " /  \\",
+        ],
+        "defeat": "You bring down the ogre.",
+    },
+}
+MONSTER_TILES = set(MONSTER_TYPES)
+LEGACY_MONSTER_TILE = "M"
 
 DEFAULT_FLOORS: List[FloorMap] = [
     [
@@ -61,7 +101,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#.#.#####.#.#####..#",
         "#...#...#.#.....#..#",
         "###.#.###.###.#.#..#",
-        "#...#.....M...#.#..#",
+        "#...#.....R...#.#..#",
         "#.#######.#####.#..#",
         "#.....#...#.....#..#",
         "#.###.#.###.#####..#",
@@ -69,7 +109,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#.#.#####.#.###.#..#",
         "#.#.....#.#.#G..#..#",
         "#.#####.#.#.#.###..#",
-        "#.....M...#.#......#",
+        "#.....S...#.#......#",
         "####################",
     ],
     [
@@ -80,7 +120,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#.###.#.###.#.####.#",
         "#...#.#...#.#......#",
         "###.#.###.#.######.#",
-        "#...#...#.#..M.....#",
+        "#...#...#.#..O.....#",
         "#.#####.#.########.#",
         "#.....#.#.....#....#",
         "#.###.#.#####.#.##.#",
@@ -90,7 +130,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#...#.###.#.#.#....#",
         "###.#...#.#.#.####.#",
         "#...###.#...#......#",
-        "#.....M.....D......#",
+        "#.....R.....D......#",
         "####################",
     ],
     [
@@ -110,7 +150,7 @@ DEFAULT_FLOORS: List[FloorMap] = [
         "#####.#####.#.#####.#",
         "#...#.....#.#.....#.#",
         "#.#.###.#.#.#####.#.#",
-        "#.#...M.#.#.....#...#",
+        "#.#...S.#.#.....#...#",
         "#....A....D.........#",
         "####################",
     ],
@@ -120,6 +160,16 @@ DEFAULT_FLOORS: List[FloorMap] = [
 def normalize_floor_rows(rows: List[str]) -> Grid:
     width = max((len(row) for row in rows), default=1)
     return [list(row.ljust(width, "#")) for row in rows]
+
+
+def decorate_legacy_monsters(grid: Grid, floor_index: int) -> None:
+    cycle = ["R", "S", "O"]
+    counter = 0
+    for y, row in enumerate(grid):
+        for x, cell in enumerate(row):
+            if cell == LEGACY_MONSTER_TILE:
+                grid[y][x] = cycle[(floor_index + counter) % len(cycle)]
+                counter += 1
 
 
 def initialize_map_db(db_path: Path = DB_PATH) -> None:
@@ -155,8 +205,12 @@ def load_floors(db_path: Path = DB_PATH) -> List[Grid]:
     for floor_index, _row_index, row_text in rows:
         grouped.setdefault(int(floor_index), []).append(str(row_text))
     if grouped:
-        return [normalize_floor_rows(grouped[index]) for index in sorted(grouped)]
-    return [normalize_floor_rows(rows) for rows in DEFAULT_FLOORS]
+        floors = [normalize_floor_rows(grouped[index]) for index in sorted(grouped)]
+    else:
+        floors = [normalize_floor_rows(rows) for rows in DEFAULT_FLOORS]
+    for floor_index, grid in enumerate(floors):
+        decorate_legacy_monsters(grid, floor_index)
+    return floors
 
 
 def clamp(value: int, low: int, high: int) -> int:
@@ -194,8 +248,18 @@ def cell_at(grid: Grid, x: int, y: int) -> str:
     return grid[y][x]
 
 
+def is_monster(cell: str) -> bool:
+    return cell in MONSTER_TILES or cell == LEGACY_MONSTER_TILE
+
+
+def monster_info(tile: str) -> Dict[str, object]:
+    if tile in MONSTER_TYPES:
+        return MONSTER_TYPES[tile]
+    return MONSTER_TYPES["R"]
+
+
 def is_passable(cell: str) -> bool:
-    return cell in {".", " ", QUEST_ITEM_TILE, "M", "<", ">", QUEST_TARGET_TILE}
+    return cell in {".", " ", QUEST_ITEM_TILE, "<", ">", QUEST_TARGET_TILE} or is_monster(cell)
 
 
 def facing_vector(facing: int) -> Tuple[float, float]:
@@ -306,8 +370,26 @@ def find_visible_tile(grid: Grid, px: int, py: int, facing: int, tile: str) -> O
     return None
 
 
-def enemy_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int]]:
-    return find_visible_tile(grid, px, py, facing, "M")
+def visible_monster(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int, str]]:
+    dx, dy = DIRECTIONS[facing]
+    rx, ry = -dy, dx
+    for distance in range(1, 6):
+        cx = px + dx * distance
+        cy = py + dy * distance
+        center = cell_at(grid, cx, cy)
+        if center == "#":
+            return None
+        if center == "D":
+            break
+        if is_monster(center):
+            return distance, 0, 0, center if center in MONSTER_TILES else "R"
+        for side, lateral in ((-1, -1), (1, 1)):
+            sx = cx + rx * lateral
+            sy = cy + ry * lateral
+            side_cell = cell_at(grid, sx, sy)
+            if is_monster(side_cell):
+                return distance, side, lateral, side_cell if side_cell in MONSTER_TILES else "R"
+    return None
 
 
 def grail_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[int, int, int]]:
@@ -327,17 +409,14 @@ def stairs_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[
     return None
 
 
-def render_enemy_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int) -> None:
+def render_monster_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int, monster_tile: str) -> None:
+    info = monster_info(monster_tile)
     perspective_scale = max(0.55, 2.4 / (distance + 0.35))
     perspective_scale *= 1.15 if side == 0 else 0.72
     center_x = width // 2 + side * max(3, width // max(8, 9 + distance * 2))
     floor_y = height - 4
-    sprite = [
-        "  M  ",
-        " /#\\ ",
-        "/###\\",
-        " / \\",
-    ]
+    sprite = info["sprite"]  # type: ignore[assignment]
+    color = int(info["color"])
     sprite_height = max(2, int(round(len(sprite) * perspective_scale)))
     sprite_width = max(3, int(round(len(sprite[0]) * perspective_scale * (0.95 if side == 0 else 0.85))))
     sprite_top = max(1, floor_y - sprite_height + 1)
@@ -351,7 +430,7 @@ def render_enemy_sprite(items: List[DrawItem], width: int, height: int, distance
             source_col = min(len(row) - 1, int(target_col / max(0.001, sprite_width / len(row))))
             ch = row[source_col]
             if ch != " ":
-                items.append((sy, start_x + target_col, ch, 7))
+                items.append((sy, start_x + target_col, ch, color))
 
 
 def render_grail_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int) -> None:
@@ -496,10 +575,10 @@ def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: i
         distance, side, _ = visible_altar
         render_altar_sprite(items, width, height, distance, side)
 
-    visible_enemy = enemy_in_view(grid, px, py, facing)
-    if visible_enemy is not None:
-        distance, side, _ = visible_enemy
-        render_enemy_sprite(items, width, height, distance, side)
+    seen_monster = visible_monster(grid, px, py, facing)
+    if seen_monster is not None:
+        distance, side, _, tile = seen_monster
+        render_monster_sprite(items, width, height, distance, side, tile)
 
     return items
 
@@ -525,9 +604,10 @@ def draw_minimap(stdscr, grid: Grid, px: int, py: int, facing: int, floor_index:
             elif ch == "D":
                 char = "[]"
                 attr = curses.color_pair(2) | curses.A_BOLD
-            elif ch == "M":
-                char = "MM"
-                attr = curses.color_pair(7) | curses.A_BOLD
+            elif is_monster(ch):
+                info = monster_info(ch if ch in MONSTER_TILES else "R")
+                char = str(info["map"])
+                attr = curses.color_pair(int(info["color"])) | curses.A_BOLD
             elif ch == QUEST_ITEM_TILE:
                 char = "GG"
                 attr = curses.color_pair(8) | curses.A_BOLD
@@ -649,7 +729,7 @@ def use_action(state: Dict[str, object]) -> str:
     if target == "D":
         grid[ty][tx] = "."
         return "You open the door."
-    if target == "M":
+    if is_monster(target):
         has_grail = bool(state["has_grail"])
         cost = ATTACK_COST_WITH_GRAIL if has_grail else ATTACK_COST_NO_GRAIL
         energy = int(state["energy"])
@@ -658,7 +738,8 @@ def use_action(state: Dict[str, object]) -> str:
         state["energy"] = max(0, energy - cost)
         grid[ty][tx] = "."
         state["score"] = int(state["score"]) + 1
-        return f"You defeat the enemy. Energy -{cost}."
+        info = monster_info(target if target in MONSTER_TILES else "R")
+        return f"{info['defeat']} Energy -{cost}."
     if target == QUEST_ITEM_TILE:
         if not can_pick_item(state):
             return f"Your inventory is full ({inventory_count(state)}/{MAX_CARRIED_ITEMS})."
@@ -786,7 +867,7 @@ def find_start_position(floors: List[Grid]) -> Tuple[int, int, int]:
     for floor_index, grid in enumerate(floors):
         for y, row in enumerate(grid):
             for x, cell in enumerate(row):
-                if cell in {".", QUEST_ITEM_TILE, "<", ">", "M", " ", QUEST_TARGET_TILE}:
+                if cell in {".", QUEST_ITEM_TILE, "<", ">", " ", QUEST_TARGET_TILE} or is_monster(cell):
                     return floor_index, x, y
     return 0, 1, 1
 
@@ -810,7 +891,7 @@ def run(stdscr) -> int:
         "has_grail": False,
         "quest_complete": False,
         "show_map": True,
-        "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}.",
+        "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}. Beware of rats, skeletons, and ogres.",
         "show_congrats_banner": False,
     }
     collect_tile(state, current_grid(state))

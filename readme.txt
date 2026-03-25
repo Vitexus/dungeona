@@ -3,48 +3,46 @@ DUNGEONA
 
 Overview
 --------
-Dungeona is a small terminal dungeon crawler written in Python with the built-in
-curses module. It renders an ASCII/ANSI-style first-person dungeon view and
-includes a separate terminal editor for maintaining the dungeon map stored in a
-SQLite database.
+Dungeona is a terminal dungeon crawler written in Python with the built-in
+curses module. It renders a pseudo-3D first-person ASCII view, stores dungeon
+data in SQLite, and includes a separate terminal editor for building and
+validating multi-floor dungeons.
 
-Donation link:
-https://paypal.me/michtatton
+This version is themed as a Holy Grail quest. You explore three connected
+floors, fight monsters, recover the grail, and deliver it to the altar on the
+final floor.
+
+[Donate](https://paypal.me/michtatton)
 
 Project contents
 ----------------
 dungeona.py        Main game
-dungeon_editor.py  Map editor and validator
-dungeon_map.db     SQLite database containing dungeon floor rows
+dungeon_editor.py  Terminal editor and dungeon validator
 license.txt        Donationware license
 readme.txt         This file
 
-Current project behavior
-------------------------
-This version uses a shared database-backed dungeon layout:
+dungeon_map.db is created automatically the first time you run the game or
+editor if it does not already exist.
 
-- dungeona.py loads dungeon floors from dungeon_map.db at startup.
-- dungeon_editor.py reads from and writes to the same dungeon_map.db file.
-- If the database table is missing or empty, the project seeds it with the
-  built-in default three-floor dungeon.
-- Both scripts can still read an older legacy table named map_rows, but all
-  current saves use floor_map_rows.
-
-Gameplay summary
-----------------
-- Explore a three-floor dungeon from a first-person view.
-- Find the Holy Grail (G).
-- Bring the Grail to the altar (A) on the final floor to complete the quest.
-- Open doors, fight monsters, manage energy, and travel between floors by
-  using stair tiles.
-- Toggle the minimap whenever needed.
+Features
+--------
+- First-person ASCII dungeon exploration
+- Three connected dungeon floors in the default data set
+- Holy Grail quest objective with altar turn-in
+- Multiple monster types: rats, skeletons, and ogres
+- Doors that can be opened from the tile directly ahead
+- Stairs for moving between floors
+- Toggleable minimap with player position and facing direction
+- Energy-based combat and waiting to recover energy
+- SQLite-backed dungeon storage
+- Built-in dungeon editor with verification tools
 
 Requirements
 ------------
-- Python 3.10+ recommended
-- A terminal that supports curses and ANSI-style character rendering
-- No third-party Python packages are required on Linux/macOS
-- On Windows, you may need the windows-curses package:
+- Python 3.10 or newer recommended
+- A terminal with curses support
+- No third-party packages required on Linux or macOS
+- On Windows, install curses support first:
 
   pip install windows-curses
 
@@ -54,19 +52,24 @@ From the project folder:
 
   python dungeona.py
 
-To open the map editor:
+To open the dungeon editor:
 
   python dungeon_editor.py
 
-Starting state
---------------
-- The game loads the current dungeon from dungeon_map.db.
-- If the database has not been initialized yet, the default 3-floor dungeon is
-  written to it automatically.
-- The player starts on the first passable tile found while scanning the loaded
-  dungeon, facing east.
-- Energy starts at 12 and is capped at 12.
-- The minimap starts enabled.
+Game summary
+------------
+The game loads dungeon floors from dungeon_map.db and starts on the first
+walkable tile it finds. You explore in first-person view, manage energy, open
+doors, defeat monsters, collect the Holy Grail, and bring it to the altar on
+floor 3.
+
+The default dungeon contains three floors linked by stair tiles:
+- >  stairs down
+- <  stairs up
+
+The minimap can be shown or hidden during play. The status line displays
+energy, current floor, map position, facing direction, carried items,
+Holy Grail status, and defeated enemy count.
 
 Game controls
 -------------
@@ -79,49 +82,38 @@ Movement and view:
 - C                Strafe right
 
 Actions:
-- Space / Enter    Act on the tile directly ahead
-                   (open door / attack / take grail / use altar / use stairs)
+- Space / Enter    Interact with the tile ahead
 - .                Wait and regain 1 energy
-- >                Go down when standing on a downstairs tile
-- <                Go up when standing on an upstairs tile
 - M                Toggle minimap
+- >                Use stairs down immediately
+- <                Use stairs up immediately
 - X                Quit
 
-Notes:
-- Stepping onto a stair tile also triggers stair travel automatically.
-- Standing on the altar with the Grail also completes the quest automatically.
-
-Game systems
-------------
+Gameplay rules
+--------------
 - Energy starts at 12 and is capped at 12.
 - Waiting restores 1 energy.
+- Doors open when you interact with a door tile directly in front of you.
 - Defeating a monster costs:
-  - 2 energy normally
-  - 1 energy while carrying the Holy Grail
-- Defeated monsters increase the score counter.
-- Doors can be opened from the tile directly in front of the player.
-- Taking the Grail removes it from the map.
-- Inventory capacity is 3 items, although the current quest only uses the
-  Grail as a carried item.
-- The status line shows energy, floor, position, facing direction, inventory,
-  grail status, and defeated enemy count.
-- Completing the quest shows a congratulatory banner.
+  - 2 energy while not carrying the grail
+  - 1 energy while carrying the grail
+- The Holy Grail can be picked up by stepping onto it or interacting with it.
+- The grail must be delivered to the altar on floor 3 to complete the quest.
+- Standing on a stair tile automatically moves you between linked floors.
+- You can also use < or > to travel stairs directly.
+- Defeated monsters increase the on-screen score counter.
+- A congratulations banner is shown when the quest is completed.
 
-Tile meanings
--------------
-- #  Wall
-- .  Floor
-- D  Door
-- G  Holy Grail
-- A  Altar
-- M  Monster
-- >  Stairs down
-- <  Stairs up
-- (space) Empty/passable area
+Monster reference
+-----------------
+- R  Rat
+- S  Skeleton
+- O  Ogre
+- M  Legacy generic monster marker (supported by the editor and validator)
 
-Dungeon database format
------------------------
-The map is stored in dungeon_map.db using the table:
+Dungeon data
+------------
+Dungeon data is stored in dungeon_map.db in the table:
 
   floor_map_rows
 
@@ -130,29 +122,33 @@ Columns:
 - row_index     Zero-based row number within that floor
 - row_text      Raw text for the row
 
-Rows are normalized into rectangular floor grids when loaded. Shorter rows are
-padded on the right with wall tiles (#).
+If the database is empty, the game and editor populate it with the built-in
+default floors.
 
-Legacy compatibility:
-- Older single-floor data can be read from a table named map_rows.
-- When legacy data is loaded, missing floors are filled with built-in defaults
-  until the dungeon has three floors.
+The editor can also read legacy single-floor data from a map_rows table. The
+game supports legacy M monster markers by converting them into rat,
+skeleton, or ogre encounters when floors are loaded.
 
-Editor features
----------------
-The editor lets you place tiles, switch floors, save the dungeon, and verify
-that the full dungeon is valid.
+Tile reference
+--------------
+- #  Wall
+- .  Floor
+- D  Door
+- G  Holy Grail
+- A  Altar
+- R  Rat
+- S  Skeleton
+- O  Ogre
+- M  Generic monster marker (legacy/editor support)
+- >  Stairs down
+- <  Stairs up
+- (space) Empty walkable tile
 
-Validation checks include:
-- empty maps or maps with no walkable tiles
-- unreachable walkable tiles
-- unreachable Grail, altar, monsters, or stairs
-- passable leaks in the outer border
-- unknown tile values
-- invalid stair placement by floor
-- missing required upstairs/downstairs tiles on interior floors
-- missing or duplicate quest objects across the dungeon
-- incorrect total counts for stair links across all floors
+Dungeon editor
+--------------
+The editor lets you inspect and modify dungeon floors stored in the database.
+It can switch between floors, place tiles, verify the dungeon, and save changes
+back to dungeon_map.db.
 
 Editor controls
 ---------------
@@ -164,33 +160,47 @@ Editor controls
 - 3                Door
 - 4                Holy Grail
 - 5                Altar
-- 6                Monster
-- 7                Stairs down
-- 8                Stairs up
-- 0                Empty space
+- 6                Rat
+- 7                Skeleton
+- 8                Ogre
+- 9                Stairs down
+- 0                Stairs up
+- -                Generic monster marker
+- =                Empty space
 - [ or ]           Cycle selected tile
 - Space / Enter    Place selected tile
 - P                Place selected tile
-- V                Verify whole dungeon
-- S                Save map to dungeon_map.db
+- V                Verify the whole dungeon
+- S                Save to dungeon_map.db
 - Q                Quit editor
 
-Editor rules
-------------
-- The editor enforces exactly one Holy Grail across the full dungeon by
-  removing any existing Grail before placing a new one.
-- The editor enforces exactly one altar across the full dungeon by removing
-  any existing altar before placing a new one.
-- Each floor keeps at most one upstairs tile and one downstairs tile.
+Editor behavior and validation
+------------------------------
+- The editor maintains exactly one Holy Grail across the full dungeon.
+- The editor maintains exactly one altar across the full dungeon.
+- Each floor can have at most one upstairs tile and one downstairs tile.
 - Upstairs cannot be placed on floor 1.
 - Downstairs cannot be placed on the final floor.
+- Verification checks for:
+  - empty maps
+  - inconsistent row widths
+  - unknown tile values
+  - unreachable walkable tiles
+  - unreachable quest tiles, monsters, or stairs
+  - leaks on the outer border
+  - missing or extra stair links across floors
+  - missing or extra grails
+  - missing or extra altars
+  - missing monsters
 
 Notes
 -----
-- Empty space is shown as . in the editor for visibility, but the stored tile
-  value is a space character.
-- The game and editor now use the same dungeon_map.db file, so saved editor
-  changes affect the next game session.
+- Empty space is displayed as . in the editor for visibility, but it is stored
+  as a literal space character in the map.
+- The default floor data is built into the Python files and written to the
+  database automatically if the table is empty.
+- If you change the database outside the editor, keep stair links consistent
+  between floors.
 
 License
 -------

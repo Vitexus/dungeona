@@ -15,7 +15,7 @@ DEFAULT_FLOORS = [
         "#.#.#####.#.#####..#",
         "#...#...#.#.....#..#",
         "###.#.###.###.#.#..#",
-        "#...#.....M...#.#..#",
+        "#...#.....R...#.#..#",
         "#.#######.#####.#..#",
         "#.....#...#.....#..#",
         "#.###.#.###.#####..#",
@@ -23,7 +23,7 @@ DEFAULT_FLOORS = [
         "#.#.#####.#.###.#..#",
         "#.#.....#.#.#G..#..#",
         "#.#####.#.#.#.###..#",
-        "#.....M...#.#......#",
+        "#.....S...#.#......#",
         "####################",
     ],
     [
@@ -34,7 +34,7 @@ DEFAULT_FLOORS = [
         "#.###.#.###.#.####.#",
         "#...#.#...#.#......#",
         "###.#.###.#.######.#",
-        "#...#...#.#..M.....#",
+        "#...#...#.#..O.....#",
         "#.#####.#.########.#",
         "#.....#.#.....#....#",
         "#.###.#.#####.#.##.#",
@@ -44,7 +44,7 @@ DEFAULT_FLOORS = [
         "#...#.###.#.#.#....#",
         "###.#...#.#.#.####.#",
         "#...###.#...#......#",
-        "#.....M.....D......#",
+        "#.....R.....D......#",
         "####################",
     ],
     [
@@ -64,13 +64,13 @@ DEFAULT_FLOORS = [
         "#####.#####.#.#####.#",
         "#...#.....#.#.....#.#",
         "#.#.###.#.#.#####.#.#",
-        "#.#...M.#.#.....#...#",
+        "#.#...S.#.#.....#...#",
         "#....A....D.........#",
         "####################",
     ],
 ]
 
-PASSABLE_TILES = {".", "G", "A", "M", " ", "<", ">"}
+PASSABLE_TILES = {".", "G", "A", "M", "R", "S", "O", " ", "<", ">"}
 DIRECTIONS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 
 TILE_INFO: Dict[str, Tuple[str, int]] = {
@@ -80,12 +80,15 @@ TILE_INFO: Dict[str, Tuple[str, int]] = {
     "G": ("holy grail", 4),
     "A": ("altar", 6),
     "M": ("monster", 5),
+    "R": ("rat", 5),
+    "S": ("skeleton", 6),
+    "O": ("ogre", 8),
     ">": ("stairs down", 7),
     "<": ("stairs up", 7),
     " ": ("empty", 2),
 }
 
-PALETTE_ORDER = ["#", ".", "D", "G", "A", "M", ">", "<", " "]
+PALETTE_ORDER = ["#", ".", "D", "G", "A", "R", "S", "O", "M", ">", "<", " "]
 
 
 def normalize_floor_rows(rows: List[str]) -> List[List[str]]:
@@ -237,7 +240,7 @@ def verify_floor(grid: List[List[str]], floor_index: int, floor_count: int) -> L
                 grail_positions.append((x, y))
             elif cell == "A":
                 altar_positions.append((x, y))
-            elif cell == "M":
+            elif cell in {"M", "R", "S", "O"}:
                 monster_positions.append((x, y))
             elif cell == "<":
                 stair_up_positions.append((x, y))
@@ -300,7 +303,7 @@ def verify_floors(floors: List[List[List[str]]]) -> List[str]:
         for row in grid:
             grail_total += row.count("G")
             altar_total += row.count("A")
-            monster_total += row.count("M")
+            monster_total += row.count("M") + row.count("R") + row.count("S") + row.count("O")
             up_total += row.count("<")
             down_total += row.count(">")
 
@@ -373,7 +376,7 @@ def draw_grid(stdscr, grid: List[List[str]], cursor_x: int, cursor_y: int, top: 
             display = cell if cell != " " else "."
             if (x, y) == (cursor_x, cursor_y):
                 attr = curses.color_pair(9) | curses.A_BOLD
-            elif cell in {"G", "A", "M", "D", "<", ">"}:
+            elif cell in {"G", "A", "M", "R", "S", "O", "D", "<", ">"}:
                 attr |= curses.A_BOLD
             try:
                 stdscr.addch(top + y, left + x, display, attr)
@@ -417,9 +420,11 @@ def draw_sidebar(
         " , and . change floor",
         " 1 wall   2 floor",
         " 3 door   4 grail",
-        " 5 altar  6 monster",
-        " 7 stair down 8 stair up",
-        " 0 empty",
+        " 5 altar  6 rat",
+        " 7 skeleton 8 ogre",
+        " 9 stair down 0 stair up",
+        " - generic monster",
+        " = empty",
         " space/place current",
         " [ ] cycle tile",
         " v verify whole dungeon",
@@ -500,12 +505,18 @@ def run(stdscr) -> int:
         elif key == ord("5"):
             selected_tile = "A"
         elif key == ord("6"):
-            selected_tile = "M"
+            selected_tile = "R"
         elif key == ord("7"):
-            selected_tile = ">"
+            selected_tile = "S"
         elif key == ord("8"):
-            selected_tile = "<"
+            selected_tile = "O"
+        elif key == ord("9"):
+            selected_tile = ">"
         elif key == ord("0"):
+            selected_tile = "<"
+        elif key == ord("-"):
+            selected_tile = "M"
+        elif key == ord("="):
             selected_tile = " "
         elif key == ord("["):
             selected_tile = cycle_tile(selected_tile, -1)

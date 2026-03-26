@@ -1,212 +1,232 @@
 DUNGEONA
 ========
 
+Version
+-------
+README for the project archive: 20260326_dungeona_015.zip
+
 Overview
 --------
-Dungeona is a terminal dungeon crawler written in Python with the built-in
-curses module. It renders a pseudo-3D first-person ASCII view, stores dungeon
-data in SQLite, and includes a separate terminal editor for building and
-validating multi-floor dungeons.
+Dungeona is a terminal-based first-person dungeon crawler written in Python.
+It uses the built-in curses module for display, stores dungeon layouts in a
+SQLite database, and includes a separate dungeon editor for creating and
+validating multi-floor maps.
 
-This version is themed as a Holy Grail quest. You explore three connected
-floors, fight monsters, recover the grail, and deliver it to the altar on the
-final floor.
+This build uses a Holy Grail quest theme: explore the dungeon, defeat monsters,
+recover the grail, and carry it to the altar on the final floor.
 
-[Donate](https://paypal.me/michtatton)
+Included files
+--------------
+dungeona.py         Main game
 
-Project contents
-----------------
-dungeona.py        Main game
-dungeon_editor.py  Terminal editor and dungeon validator
-license.txt        Donationware license
-readme.txt         This file
+dungeon_editor.py   Terminal map editor and validator
 
-dungeon_map.db is created automatically the first time you run the game or
-editor if it does not already exist.
+ans.py              ANSI/ANS texture parser and optional viewer
+
+dungeon_map.db      SQLite dungeon data file used by the game/editor
+
+textures/
+  wall.ans          Wall texture art
+  door.ans          Door texture art
+
+license.txt         Donationware license
+readme.txt          This file
 
 Features
 --------
 - First-person ASCII dungeon exploration
-- Three connected dungeon floors in the default data set
+- Pseudo-3D corridor rendering in the terminal
+- ANSI/ANS wall and door textures
+- Three connected floors in the default adventure
 - Holy Grail quest objective with altar turn-in
 - Multiple monster types: rats, skeletons, and ogres
-- Doors that can be opened from the tile directly ahead
-- Stairs for moving between floors
-- Toggleable minimap with player position and facing direction
-- Energy-based combat and waiting to recover energy
+- Door interaction from the tile directly ahead
+- Stairs connecting floors
+- Toggleable minimap with facing direction
+- Energy-based combat and waiting system
 - SQLite-backed dungeon storage
-- Built-in dungeon editor with verification tools
+- Full-screen terminal dungeon editor with verification tools
 
 Requirements
 ------------
 - Python 3.10 or newer recommended
 - A terminal with curses support
 - No third-party packages required on Linux or macOS
-- On Windows, install curses support first:
+- Windows users may need:
 
   pip install windows-curses
 
-How to run
-----------
+How to run the game
+-------------------
 From the project folder:
 
   python dungeona.py
 
-To open the dungeon editor:
+How to run the editor
+---------------------
+From the project folder:
 
   python dungeon_editor.py
 
-Game summary
-------------
-The game loads dungeon floors from dungeon_map.db and starts on the first
-walkable tile it finds. You explore in first-person view, manage energy, open
-doors, defeat monsters, collect the Holy Grail, and bring it to the altar on
-floor 3.
+How to view the ANSI textures
+-----------------------------
+The included ans.py utility can display or print the .ANS texture files.
 
-The default dungeon contains three floors linked by stair tiles:
-- >  stairs down
-- <  stairs up
+Open a texture in the curses viewer:
 
-The minimap can be shown or hidden during play. The status line displays
-energy, current floor, map position, facing direction, carried items,
-Holy Grail status, and defeated enemy count.
+  python ans.py textures/wall.ans
+
+Open with autoscroll:
+
+  python ans.py textures/wall.ans --autoscroll
+
+Print the texture as plain text only:
+
+  python ans.py textures/wall.ans --plain
+
+Game objective
+--------------
+1. Explore the dungeon.
+2. Find the Holy Grail.
+3. Reach the altar on floor 3.
+4. Place the grail on the altar to complete the quest.
 
 Game controls
 -------------
-Movement and view:
-- Up arrow / W     Move forward
-- Down arrow / S   Move backward
-- Q                Turn left
-- E                Turn right
-- Z                Strafe left
-- C                Strafe right
+Movement and facing:
+- Up Arrow / W      Move forward
+- Down Arrow / S    Move backward
+- Q                 Turn left
+- E                 Turn right
+- Z                 Strafe left
+- C                 Strafe right
 
 Actions:
-- Space / Enter    Interact with the tile ahead
-- .                Wait and regain 1 energy
-- M                Toggle minimap
-- >                Use stairs down immediately
-- <                Use stairs up immediately
-- X                Quit
+- Space / Enter     Interact with the tile directly ahead
+- .                 Wait and regain energy
+- M                 Toggle minimap
+- >                 Use stairs down
+- <                 Use stairs up
+- X                 Quit the game
 
-Gameplay rules
---------------
+Game rules
+----------
 - Energy starts at 12 and is capped at 12.
 - Waiting restores 1 energy.
-- Doors open when you interact with a door tile directly in front of you.
-- Defeating a monster costs:
-  - 2 energy while not carrying the grail
+- Monsters are defeated by interacting with them when they are directly ahead.
+- Combat costs:
+  - 2 energy before you have the grail
   - 1 energy while carrying the grail
-- The Holy Grail can be picked up by stepping onto it or interacting with it.
-- The grail must be delivered to the altar on floor 3 to complete the quest.
-- Standing on a stair tile automatically moves you between linked floors.
-- You can also use < or > to travel stairs directly.
-- Defeated monsters increase the on-screen score counter.
-- A congratulations banner is shown when the quest is completed.
+- Doors open when you interact with a door tile in front of you.
+- Standing on stairs can move you between linked floors.
+- The grail can be picked up when reached.
+- The quest ends when the grail is placed on the altar on floor 3.
 
 Monster reference
 -----------------
-- R  Rat
-- S  Skeleton
-- O  Ogre
-- M  Legacy generic monster marker (supported by the editor and validator)
+- R   Rat
+- S   Skeleton
+- O   Ogre
+- M   Legacy monster marker supported by the editor/loader
+
+Tile reference
+--------------
+- #   Wall
+- .   Floor
+- D   Door
+- G   Holy Grail
+- A   Altar
+- R   Rat
+- S   Skeleton
+- O   Ogre
+- M   Generic monster marker (legacy support)
+- >   Stairs down
+- <   Stairs up
+- (space) Empty walkable tile
 
 Dungeon data
 ------------
-Dungeon data is stored in dungeon_map.db in the table:
+Dungeon data is stored in the SQLite database file:
+
+  dungeon_map.db
+
+The main table used by the multi-floor system is:
 
   floor_map_rows
 
 Columns:
 - floor_index   Zero-based floor number
-- row_index     Zero-based row number within that floor
-- row_text      Raw text for the row
+- row_index     Zero-based row number within the floor
+- row_text      Raw text for that row
 
-If the database is empty, the game and editor populate it with the built-in
-default floors.
-
-The editor can also read legacy single-floor data from a map_rows table. The
-game supports legacy M monster markers by converting them into rat,
-skeleton, or ogre encounters when floors are loaded.
-
-Tile reference
---------------
-- #  Wall
-- .  Floor
-- D  Door
-- G  Holy Grail
-- A  Altar
-- R  Rat
-- S  Skeleton
-- O  Ogre
-- M  Generic monster marker (legacy/editor support)
-- >  Stairs down
-- <  Stairs up
-- (space) Empty walkable tile
+Notes:
+- If the database is empty, the game/editor can repopulate it with built-in
+  default floors.
+- Legacy data in a single-floor map_rows table is also supported by the code.
 
 Dungeon editor
 --------------
-The editor lets you inspect and modify dungeon floors stored in the database.
-It can switch between floors, place tiles, verify the dungeon, and save changes
-back to dungeon_map.db.
+The editor allows you to inspect, build, validate, and save multi-floor maps.
+It includes a tile palette, floor switching, and whole-dungeon verification.
 
 Editor controls
 ---------------
-- Arrow keys       Move cursor
-- , or <           Previous floor
-- . or >           Next floor
-- 1                Wall
-- 2                Floor
-- 3                Door
-- 4                Holy Grail
-- 5                Altar
-- 6                Rat
-- 7                Skeleton
-- 8                Ogre
-- 9                Stairs down
-- 0                Stairs up
-- -                Generic monster marker
-- =                Empty space
-- [ or ]           Cycle selected tile
-- Space / Enter    Place selected tile
-- P                Place selected tile
-- V                Verify the whole dungeon
-- S                Save to dungeon_map.db
-- Q                Quit editor
+- Arrow Keys        Move cursor
+- , or <            Previous floor
+- . or >            Next floor
+- 1                 Wall
+- 2                 Floor
+- 3                 Door
+- 4                 Holy Grail
+- 5                 Altar
+- 6                 Rat
+- 7                 Skeleton
+- 8                 Ogre
+- 9                 Stairs down
+- 0                 Stairs up
+- -                 Generic monster marker
+- =                 Empty space
+- [ or ]            Cycle selected tile
+- Space / Enter     Place selected tile
+- P                 Place selected tile
+- V                 Verify the whole dungeon
+- S                 Save to dungeon_map.db
+- Q                 Quit editor
 
-Editor behavior and validation
-------------------------------
-- The editor maintains exactly one Holy Grail across the full dungeon.
-- The editor maintains exactly one altar across the full dungeon.
-- Each floor can have at most one upstairs tile and one downstairs tile.
-- Upstairs cannot be placed on floor 1.
-- Downstairs cannot be placed on the final floor.
-- Verification checks for:
-  - empty maps
-  - inconsistent row widths
-  - unknown tile values
-  - unreachable walkable tiles
-  - unreachable quest tiles, monsters, or stairs
-  - leaks on the outer border
-  - missing or extra stair links across floors
-  - missing or extra grails
-  - missing or extra altars
-  - missing monsters
+Editor validation checks
+------------------------
+The validator checks for problems such as:
+- empty maps
+- inconsistent row widths
+- unknown tile values
+- unreachable walkable areas
+- unreachable quest tiles, monsters, or stairs
+- leaks on the outer border
+- missing or extra stair links
+- missing or extra Holy Grails
+- missing or extra altars
+- missing monsters
 
-Notes
------
-- Empty space is displayed as . in the editor for visibility, but it is stored
-  as a literal space character in the map.
-- The default floor data is built into the Python files and written to the
-  database automatically if the table is empty.
-- If you change the database outside the editor, keep stair links consistent
-  between floors.
+Project notes
+-------------
+- Empty space is shown as a visible marker in the editor, but it is stored as a
+  literal space character in the map data.
+- The default adventure contains three linked floors.
+- The project is terminal-focused and works best in a reasonably large console
+  window.
+- The texture loader in ans.py is reusable outside the game if you want to load
+  ANSI art in other Python tools.
 
 License
 -------
 This project is distributed under the dungeona Donationware License v1.0.
-See license.txt for the full license text.
+See license.txt for the full text.
 
 Author
 ------
 Copyright (c) 2026 mtatton
+
+Donation
+--------
+PayPal: https://paypal.me/michtatton
+

@@ -3,12 +3,19 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from ans import AnsiTexture, load_ans_texture
+
 Vec2 = Tuple[int, int]
 DrawItem = Tuple[int, int, str, int]
 FloorMap = List[str]
 Grid = List[List[str]]
 
 DB_PATH = Path(__file__).with_name("dungeon_map.db")
+TEXTURE_DIR = Path(__file__).with_name("textures")
+WALL_TEXTURE_FILES = {
+    "#": "wall.ans",
+    "D": "door.ans",
+}
 
 DIRECTIONS: List[Vec2] = [
     (0, -1),
@@ -232,6 +239,27 @@ def setup_colors() -> None:
     curses.init_pair(10, QUEST_COLOR, -1)
 
 
+def load_wall_textures() -> Dict[str, AnsiTexture]:
+    textures: Dict[str, AnsiTexture] = {}
+    for tile, filename in WALL_TEXTURE_FILES.items():
+        path = TEXTURE_DIR / filename
+        if path.exists():
+            try:
+                textures[tile] = load_ans_texture(path)
+            except Exception:
+                pass
+    return textures
+
+
+def texture_char_for_column(texture: Optional[AnsiTexture], x_ratio: float, y_ratio: float, fallback: str) -> str:
+    if texture is None or texture.width <= 0 or texture.height <= 0:
+        return fallback
+    tx = min(texture.width - 1, max(0, int(x_ratio * max(1, texture.width - 1))))
+    ty = min(texture.height - 1, max(0, int(y_ratio * max(1, texture.height - 1))))
+    sampled = texture.sample_char(tx, ty, fallback)
+    return sampled if sampled.strip() else fallback
+
+
 def current_grid(state: Dict[str, object]) -> Grid:
     floors = state["floors"]
     floor = int(state["floor"])
@@ -274,7 +302,7 @@ def cast_perspective_ray(
     dir_x: float,
     dir_y: float,
     max_depth: float = MAX_RENDER_DEPTH,
-) -> Tuple[float, str, int]:
+) -> Tuple[float, str, int, float]:
     map_x = int(origin_x)
     map_y = int(origin_y)
 
@@ -310,13 +338,18 @@ def cast_perspective_ray(
         if cell in {"#", "D"}:
             if side == 0:
                 distance = (map_x - origin_x + (1 - step_x) / 2.0) / (dir_x if abs(dir_x) > 1e-9 else 1e-9)
+                wall_hit = origin_y + distance * dir_y
             else:
                 distance = (map_y - origin_y + (1 - step_y) / 2.0) / (dir_y if abs(dir_y) > 1e-9 else 1e-9)
-            return max(0.001, distance), cell, side
+                wall_hit = origin_x + distance * dir_x
+            wall_hit -= int(wall_hit)
+            if (side == 0 and dir_x > 0) or (side == 1 and dir_y < 0):
+                wall_hit = 1.0 - wall_hit
+            return max(0.001, distance), cell, side, wall_hit
 
         approx_distance = min(side_dist_x, side_dist_y)
         if approx_distance > max_depth:
-            return max_depth, " ", side
+            return max_depth, " ", side, 0.0
 
 
 def wall_char(distance: float, side: int, cell: str) -> str:
@@ -518,7 +551,7 @@ def render_stairs_sprite(items: List[DrawItem], width: int, height: int, distanc
                 items.append((sy, start_x + target_col, ch, 9))
 
 
-def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: int) -> List[DrawItem]:
+def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: int, wall_textures: Optional[Dict[str, AnsiTexture]] = None) -> List[DrawItem]:
     items: List[DrawItem] = []
     horizon = height // 2
     cam_x, cam_y = px + 0.5, py + 0.5
@@ -534,7 +567,7 @@ def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: i
         camera_x = 2.0 * x / max(1, width - 1) - 1.0
         ray_dir_x = dir_x + plane_x * camera_x
         ray_dir_y = dir_y + plane_y * camera_x
-        distance, cell, side = cast_perspective_ray(grid, cam_x, cam_y, ray_dir_x, ray_dir_y)
+        distance, cell, side, wall_hit = cast_perspective_ray(grid, cam_x, cam_y, ray_dir_x, ray_dir_y)
         if cell == " ":
             continue
 
@@ -543,16 +576,20 @@ def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: i
         draw_end = min(height - 3, horizon + line_height // 2)
         char = wall_char(distance, side, cell)
         color = 2 if cell == "D" else 1
+        texture = (wall_textures or {}).get(cell)
 
         for y in range(draw_start, draw_end + 1):
             draw_char = char
+            if texture is not None:
+                y_ratio = (y - draw_start) / max(1, draw_end - draw_start)
+                draw_char = texture_char_for_column(texture, wall_hit, y_ratio, draw_char)
             if cell == "D":
                 mid = (draw_start + draw_end) // 2
                 if abs(y - mid) <= max(1, line_height // 10):
                     draw_char = "="
-                elif x % 2 == 0:
+                elif x % 2 == 0 and texture is None:
                     draw_char = "|"
-            elif side == 1 and draw_char in {"█", "▓", "▒"}:
+            elif side == 1 and texture is None and draw_char in {"█", "▓", "▒"}:
                 draw_char = {"█": "▓", "▓": "▒", "▒": "░"}.get(draw_char, draw_char)
             items.append((y, x, draw_char, color))
 
@@ -812,7 +849,7 @@ def draw_scene(stdscr, state: Dict[str, object]) -> None:
     height, width = stdscr.getmaxyx()
     stdscr.erase()
 
-    title = " ANSI Dungeon - Holy Grail Quest "
+    title = "Dungeona - Holy Grail Quest"
     energy = int(state["energy"])
     filled = max(0, min(MAX_ENERGY, energy))
     empty = max(0, MAX_ENERGY - filled)
@@ -833,7 +870,15 @@ def draw_scene(stdscr, state: Dict[str, object]) -> None:
         except curses.error:
             pass
 
-    for y, x, ch, color in render_view(grid, int(state["x"]), int(state["y"]), int(state["facing"]), width, view_height):
+    for y, x, ch, color in render_view(
+        grid,
+        int(state["x"]),
+        int(state["y"]),
+        int(state["facing"]),
+        width,
+        view_height,
+        state.get("wall_textures"),
+    ):
         if 1 <= y < height - 3 and 0 <= x < width:
             try:
                 attr = curses.color_pair(color)
@@ -880,6 +925,7 @@ def run(stdscr) -> int:
 
     floors = load_floors()
     start_floor, start_x, start_y = find_start_position(floors)
+    wall_textures = load_wall_textures()
     state: Dict[str, object] = {
         "floors": floors,
         "floor": start_floor,
@@ -893,6 +939,7 @@ def run(stdscr) -> int:
         "show_map": True,
         "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}. Beware of rats, skeletons, and ogres.",
         "show_congrats_banner": False,
+        "wall_textures": wall_textures,
     }
     collect_tile(state, current_grid(state))
 

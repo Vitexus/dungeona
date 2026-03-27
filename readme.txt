@@ -3,86 +3,115 @@ DUNGEONA
 
 Version
 -------
-README for the project archive: 20260326_dungeona_015.zip
+Updated README for the project archive: 20260327_dungeona_017.zip
 
 Overview
 --------
 Dungeona is a terminal-based first-person dungeon crawler written in Python.
 It uses the built-in curses module for display, stores dungeon layouts in a
-SQLite database, and includes a separate dungeon editor for creating and
-validating multi-floor maps.
+SQLite database, and includes a separate editor for building and validating
+multi-floor dungeon maps.
 
-This build uses a Holy Grail quest theme: explore the dungeon, defeat monsters,
+This build centers on a Holy Grail quest: explore the dungeon, defeat monsters,
 recover the grail, and carry it to the altar on the final floor.
+
+What's new in this build
+------------------------
+Compared with earlier archive versions, this build includes:
+- ANSI texture support for walls and doors
+- animated ANSI rat frames in textures/rat001.ans through textures/rat003.ans
+- monster spotting/chase behavior during play
+- the same built-in multi-floor editor and validator workflow
 
 Included files
 --------------
-dungeona.py         Main game
+dungeona.py
+    Main game.
 
-dungeon_editor.py   Terminal map editor and validator
+dungeon_editor.py
+    Terminal map editor and dungeon validator.
 
-ans.py              ANSI/ANS texture parser and optional viewer
+ans.py
+    Reusable ANSI/ANS parser and optional texture viewer.
 
-dungeon_map.db      SQLite dungeon data file used by the game/editor
+dungeon_map.db
+    SQLite dungeon data file used by the game and editor.
 
 textures/
-  wall.ans          Wall texture art
-  door.ans          Door texture art
+    ANSI art assets used by the renderer:
+    - wall.ans
+    - door.ans
+    - rat001.ans
+    - rat002.ans
+    - rat003.ans
 
-license.txt         Donationware license
-readme.txt          This file
+license.txt
+    Donationware license.
+
+readme.txt
+    Project documentation.
 
 Features
 --------
-- First-person ASCII dungeon exploration
-- Pseudo-3D corridor rendering in the terminal
+- terminal-based first-person dungeon exploration
+- pseudo-3D corridor rendering in curses
 - ANSI/ANS wall and door textures
-- Three connected floors in the default adventure
-- Holy Grail quest objective with altar turn-in
-- Multiple monster types: rats, skeletons, and ogres
-- Door interaction from the tile directly ahead
-- Stairs connecting floors
-- Toggleable minimap with facing direction
-- Energy-based combat and waiting system
-- SQLite-backed dungeon storage
-- Full-screen terminal dungeon editor with verification tools
+- animated rat artwork when rat texture frames are available
+- three connected dungeon floors in the default adventure
+- Holy Grail quest objective with altar delivery
+- rats, skeletons, and ogres
+- monster spotting and short chase behavior
+- door interaction from the tile directly ahead
+- stairs linking multiple floors
+- toggleable minimap with facing direction
+- energy-based combat and waiting system
+- SQLite-backed map storage
+- full-screen terminal dungeon editor with validation tools
 
 Requirements
 ------------
 - Python 3.10 or newer recommended
-- A terminal with curses support
-- No third-party packages required on Linux or macOS
-- Windows users may need:
+- a terminal with curses support
+- no third-party packages required on Linux or macOS
 
-  pip install windows-curses
+Windows users may need:
+
+    pip install windows-curses
 
 How to run the game
 -------------------
 From the project folder:
 
-  python dungeona.py
+    python dungeona.py
 
 How to run the editor
 ---------------------
 From the project folder:
 
-  python dungeon_editor.py
+    python dungeon_editor.py
 
-How to view the ANSI textures
------------------------------
-The included ans.py utility can display or print the .ANS texture files.
+How to view ANSI textures
+-------------------------
+The included ans.py utility can display or print .ANS texture files.
 
 Open a texture in the curses viewer:
 
-  python ans.py textures/wall.ans
+    python ans.py textures/wall.ans
 
 Open with autoscroll:
 
-  python ans.py textures/wall.ans --autoscroll
+    python ans.py textures/wall.ans --autoscroll
 
-Print the texture as plain text only:
+Print plain text only:
 
-  python ans.py textures/wall.ans --plain
+    python ans.py textures/wall.ans --plain
+
+Texture viewer controls
+-----------------------
+- Arrow Keys   Scroll
+- Page Up      Scroll up faster
+- Page Down    Scroll down faster
+- Q            Quit viewer
 
 Game objective
 --------------
@@ -109,25 +138,33 @@ Actions:
 - <                 Use stairs up
 - X                 Quit the game
 
-Game rules
-----------
+Gameplay rules
+--------------
 - Energy starts at 12 and is capped at 12.
 - Waiting restores 1 energy.
-- Monsters are defeated by interacting with them when they are directly ahead.
+- Monsters are defeated by interacting with them when directly ahead.
 - Combat costs:
   - 2 energy before you have the grail
   - 1 energy while carrying the grail
 - Doors open when you interact with a door tile in front of you.
 - Standing on stairs can move you between linked floors.
-- The grail can be picked up when reached.
-- The quest ends when the grail is placed on the altar on floor 3.
+- The grail can be picked up either by stepping onto it or interacting with it.
+- The grail is delivered by using the altar or standing on it on floor 3.
+- Monsters can spot the player and continue pursuing for several turns.
+- The HUD shows floor, position, facing, item count, grail status, and defeated
+  monsters.
+
+Inventory note
+--------------
+The current build exposes an inventory capacity of 3 item slots in the status
+line and quest logic. The Holy Grail uses one of those slots.
 
 Monster reference
 -----------------
 - R   Rat
 - S   Skeleton
 - O   Ogre
-- M   Legacy monster marker supported by the editor/loader
+- M   Generic legacy monster marker supported by the loader/editor
 
 Tile reference
 --------------
@@ -146,13 +183,12 @@ Tile reference
 
 Dungeon data
 ------------
-Dungeon data is stored in the SQLite database file:
+Dungeon data is stored in:
 
-  dungeon_map.db
+    dungeon_map.db
 
-The main table used by the multi-floor system is:
-
-  floor_map_rows
+Primary multi-floor table:
+- floor_map_rows
 
 Columns:
 - floor_index   Zero-based floor number
@@ -160,20 +196,20 @@ Columns:
 - row_text      Raw text for that row
 
 Notes:
-- If the database is empty, the game/editor can repopulate it with built-in
-  default floors.
-- Legacy data in a single-floor map_rows table is also supported by the code.
+- If the multi-floor table is empty, the game/editor can repopulate it with
+  built-in default floors.
+- Legacy single-floor data in a map_rows table is also supported.
 
 Dungeon editor
 --------------
-The editor allows you to inspect, build, validate, and save multi-floor maps.
+The editor lets you inoct, build, validate, and save multi-floor maps.
 It includes a tile palette, floor switching, and whole-dungeon verification.
 
 Editor controls
 ---------------
 - Arrow Keys        Move cursor
-- , or <            Previous floor
-- . or >            Next floor
+- ,                 Previous floor
+- .                 Next floor
 - 1                 Wall
 - 2                 Floor
 - 3                 Door
@@ -185,10 +221,9 @@ Editor controls
 - 9                 Stairs down
 - 0                 Stairs up
 - -                 Generic monster marker
-- =                 Empty space
+- =                 Empty tile
+- Space / Enter     Place current tile
 - [ or ]            Cycle selected tile
-- Space / Enter     Place selected tile
-- P                 Place selected tile
 - V                 Verify the whole dungeon
 - S                 Save to dungeon_map.db
 - Q                 Quit editor
@@ -209,13 +244,12 @@ The validator checks for problems such as:
 
 Project notes
 -------------
-- Empty space is shown as a visible marker in the editor, but it is stored as a
+- Empty space is shown with a visible marker in the editor, but stored as a
   literal space character in the map data.
 - The default adventure contains three linked floors.
-- The project is terminal-focused and works best in a reasonably large console
-  window.
-- The texture loader in ans.py is reusable outside the game if you want to load
-  ANSI art in other Python tools.
+- The game works best in a reasonably large terminal window.
+- ans.py can be reused outside the game to load or inspect ANSI art.
+- Missing texture files do not stop the game; it falls back to text rendering.
 
 License
 -------

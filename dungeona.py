@@ -96,6 +96,7 @@ MONSTER_TYPES: Dict[str, Dict[str, object]] = {
 }
 MONSTER_TILES = set(MONSTER_TYPES)
 LEGACY_MONSTER_TILE = "M"
+MONSTER_CHASE_TURNS = 3
 
 DEFAULT_FLOORS: List[FloorMap] = [
     [
@@ -288,6 +289,10 @@ def monster_info(tile: str) -> Dict[str, object]:
 
 def is_passable(cell: str) -> bool:
     return cell in {".", " ", QUEST_ITEM_TILE, "<", ">", QUEST_TARGET_TILE} or is_monster(cell)
+
+
+def is_walkable_for_monster(cell: str) -> bool:
+    return cell in {".", " ", QUEST_ITEM_TILE, "<", ">", QUEST_TARGET_TILE}
 
 
 def facing_vector(facing: int) -> Tuple[float, float]:
@@ -715,7 +720,7 @@ def collect_tile(state: Dict[str, object], grid: Grid) -> None:
         deliver_quest_if_possible(state, grid)
 
 
-def try_move(state: Dict[str, object], step: int) -> None:
+def try_move(state: Dict[str, object], step: int) -> bool:
     grid = current_grid(state)
     dx, dy = DIRECTIONS[int(state["facing"])]
     nx = int(state["x"]) + dx * step
@@ -724,9 +729,11 @@ def try_move(state: Dict[str, object], step: int) -> None:
         state["x"] = nx
         state["y"] = ny
         collect_tile(state, grid)
+        return True
+    return False
 
 
-def try_strafe(state: Dict[str, object], step: int) -> None:
+def try_strafe(state: Dict[str, object], step: int) -> bool:
     grid = current_grid(state)
     facing = int(state["facing"])
     side = (facing + step) % 4
@@ -844,6 +851,110 @@ def draw_banner_overlay(stdscr, lines: List[str], color: int) -> None:
                 pass
 
 
+def monster_has_line_of_sight(grid: Grid, mx: int, my: int, px: int, py: int, max_distance: int = 6) -> bool:
+    dx = px - mx
+    dy = py - my
+    if dx == 0 and dy == 0:
+        return True
+    if dx != 0 and dy != 0:
+        return False
+    distance = abs(dx) + abs(dy)
+    if distance > max_distance:
+        return False
+    step_x = 0 if dx == 0 else (1 if dx > 0 else -1)
+    step_y = 0 if dy == 0 else (1 if dy > 0 else -1)
+    x = mx + step_x
+    y = my + step_y
+    while (x, y) != (px, py):
+        if cell_at(grid, x, y) in {"#", "D"}:
+            return False
+        x += step_x
+        y += step_y
+    return True
+
+
+def iter_monsters(grid: Grid) -> List[Tuple[int, int, str]]:
+    monsters: List[Tuple[int, int, str]] = []
+    for y, row in enumerate(grid):
+        for x, cell in enumerate(row):
+            if is_monster(cell):
+                monsters.append((x, y, cell if cell in MONSTER_TILES else "R"))
+    return monsters
+
+
+def move_monsters(state: Dict[str, object]) -> None:
+    grid = current_grid(state)
+    px = int(state["x"])
+    py = int(state["y"])
+    chase_map = state.setdefault("monster_chase", {})
+    floor_key = str(int(state["floor"]))
+    floor_chase = chase_map.setdefault(floor_key, {})
+    seen_names: List[str] = []
+
+    for mx, my, tile in iter_monsters(grid):
+        monster_key = f"{mx},{my}"
+        if monster_has_line_of_sight(grid, mx, my, px, py):
+            floor_chase[monster_key] = MONSTER_CHASE_TURNS
+            seen_names.append(str(monster_info(tile)["name"]))
+
+    updated_chase: Dict[str, int] = {}
+    occupied = {(x, y) for x, y, _tile in iter_monsters(grid)}
+
+    for mx, my, tile in iter_monsters(grid):
+        old_key = f"{mx},{my}"
+        chase_turns = int(floor_chase.get(old_key, 0))
+        if chase_turns <= 0:
+            continue
+
+        moved = False
+        options: List[Tuple[int, int, int, int]] = []
+        for dx, dy in DIRECTIONS:
+            nx = mx + dx
+            ny = my + dy
+            if (nx, ny) == (px, py):
+                continue
+            if not is_walkable_for_monster(cell_at(grid, nx, ny)):
+                continue
+            if (nx, ny) in occupied:
+                continue
+            distance = abs(px - nx) + abs(py - ny)
+            options.append((distance, nx, ny, chase_turns))
+
+        if options:
+            options.sort(key=lambda item: item[0])
+            _distance, nx, ny, _ = options[0]
+            current_distance = abs(px - mx) + abs(py - my)
+            if _distance < current_distance:
+                grid[my][mx] = "."
+                grid[ny][nx] = tile
+                occupied.remove((mx, my))
+                occupied.add((nx, ny))
+                mx, my = nx, ny
+                moved = True
+
+        remaining = chase_turns - 1
+        if moved and monster_has_line_of_sight(grid, mx, my, px, py):
+            remaining = MONSTER_CHASE_TURNS
+        if remaining > 0:
+            updated_chase[f"{mx},{my}"] = remaining
+
+    chase_map[floor_key] = updated_chase
+    if seen_names:
+        unique_names = []
+        for name in seen_names:
+            if name not in unique_names:
+                unique_names.append(name)
+        if len(unique_names) == 1:
+            state["message"] = f"A {unique_names[0]} spots you!"
+        else:
+            state["message"] = "Monsters spot you!"
+
+
+def advance_world(state: Dict[str, object]) -> None:
+    move_monsters(state)
+    use_current_tile(state)
+
+
 def draw_scene(stdscr, state: Dict[str, object]) -> None:
     grid = current_grid(state)
     height, width = stdscr.getmaxyx()
@@ -940,6 +1051,7 @@ def run(stdscr) -> int:
         "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}. Beware of rats, skeletons, and ogres.",
         "show_congrats_banner": False,
         "wall_textures": wall_textures,
+        "monster_chase": {},
     }
     collect_tile(state, current_grid(state))
 
@@ -954,44 +1066,57 @@ def run(stdscr) -> int:
                 break
             continue
 
+        acted = False
         if key in (ord("x"), ord("X")):
             break
         if key in (ord("q"), ord("Q")):
             state["facing"] = (int(state["facing"]) - 1) % 4
             state["message"] = "You turn left."
+            acted = True
         elif key in (ord("e"), ord("E")):
             state["facing"] = (int(state["facing"]) + 1) % 4
             state["message"] = "You turn right."
+            acted = True
         elif key in (curses.KEY_UP, ord("w"), ord("W")):
             old_pos = (state["x"], state["y"])
             try_move(state, 1)
             state["message"] = "You move forward." if old_pos != (state["x"], state["y"]) else "A wall blocks your way."
+            acted = True
         elif key in (curses.KEY_DOWN, ord("s"), ord("S")):
             old_pos = (state["x"], state["y"])
             try_move(state, -1)
             state["message"] = "You move backward." if old_pos != (state["x"], state["y"]) else "You cannot move there."
+            acted = True
         elif key in (ord("z"), ord("Z")):
             old_pos = (state["x"], state["y"])
             try_strafe(state, -1)
             state["message"] = "You sidestep left." if old_pos != (state["x"], state["y"]) else "Blocked on the left."
+            acted = True
         elif key in (ord("c"), ord("C")):
             old_pos = (state["x"], state["y"])
             try_strafe(state, 1)
             state["message"] = "You sidestep right." if old_pos != (state["x"], state["y"]) else "Blocked on the right."
+            acted = True
         elif key in (ord("m"), ord("M")):
             state["show_map"] = not bool(state["show_map"])
             state["message"] = f"Map {'shown' if state['show_map'] else 'hidden'}."
+            acted = True
         elif key in (ord("."),):
             state["energy"] = min(MAX_ENERGY, int(state["energy"]) + WAIT_ENERGY_GAIN)
             state["message"] = "You wait and regain a little energy."
+            acted = True
         elif key in (ord(" "), ord("\n")):
             state["message"] = use_action(state)
+            acted = True
         elif key == ord(">"):
             state["message"] = travel_stairs(state, 1)
+            acted = True
         elif key == ord("<"):
             state["message"] = travel_stairs(state, -1)
+            acted = True
 
-        use_current_tile(state)
+        if acted:
+            advance_world(state)
 
     return 0
 

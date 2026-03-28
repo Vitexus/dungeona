@@ -2,6 +2,7 @@ import tkinter as tk
 from typing import Dict, List, Optional, Tuple
 
 import dungeona
+from ans import AnsiCell, AnsiTexture
 
 CELL_SIZE = 8
 MINIMAP_TILE = 14
@@ -66,6 +67,8 @@ class DungeonaGUI:
             "message": f"Loaded dungeon from {dungeona.DB_PATH.name}.",
             "show_congrats_banner": False,
             "wall_textures": dungeona.load_wall_textures(),
+            "floor_texture": dungeona.load_surface_texture(dungeona.FLOOR_TEXTURE_FILE),
+            "ceiling_texture": dungeona.load_surface_texture(dungeona.CEILING_TEXTURE_FILE),
             "animated_sprites": dungeona.load_animated_sprites(),
             "action_count": 0,
             "monster_chase": {},
@@ -290,6 +293,62 @@ class DungeonaGUI:
             self.view_width_cells,
             self.view_height_cells,
         )
+
+    def ansi_color_to_hex(self, color_name: str, intensity: str = "me") -> str:
+        base_map = {
+            "Bk": "#000000",
+            "Re": "#aa0000",
+            "Gr": "#00aa00",
+            "Ye": "#aa5500",
+            "Bl": "#0000aa",
+            "Ma": "#aa00aa",
+            "Cy": "#00aaaa",
+            "Wh": "#aaaaaa",
+        }
+        bright_map = {
+            "Bk": "#555555",
+            "Re": "#ff5555",
+            "Gr": "#55ff55",
+            "Ye": "#ffff55",
+            "Bl": "#5555ff",
+            "Ma": "#ff55ff",
+            "Cy": "#55ffff",
+            "Wh": "#ffffff",
+        }
+        dark_map = {
+            "Bk": "#000000",
+            "Re": "#550000",
+            "Gr": "#005500",
+            "Ye": "#553300",
+            "Bl": "#000055",
+            "Ma": "#550055",
+            "Cy": "#005555",
+            "Wh": "#555555",
+        }
+        if intensity == "hi":
+            return bright_map.get(color_name, base_map["Wh"])
+        if intensity == "lo":
+            return dark_map.get(color_name, base_map["Wh"])
+        return base_map.get(color_name, base_map["Wh"])
+
+    def texture_cell_fill(self, cell: AnsiCell) -> Optional[str]:
+        ch = cell.char
+        fg = self.ansi_color_to_hex(cell.fg, cell.intensity)
+        bg = self.ansi_color_to_hex(cell.bg, "me")
+        if ch == " ":
+            return bg
+        if ch in {"█", "▓", "▒", "░", "▄", "▀", "■"}:
+            return fg
+        if ch in {".", ",", "`", "_"}:
+            return self.shade_color(fg, 0.8)
+        return fg
+
+    def sample_texture_cell(self, texture: Optional[AnsiTexture], x_ratio: float, y_ratio: float) -> Optional[AnsiCell]:
+        if texture is None or texture.width <= 0 or texture.height <= 0:
+            return None
+        tx = min(texture.width - 1, max(0, int(x_ratio * max(1, texture.width - 1))))
+        ty = min(texture.height - 1, max(0, int(y_ratio * max(1, texture.height - 1))))
+        return texture.rows[ty][tx]
 
     def char_fill(self, ch: str, color_id: int) -> Optional[str]:
         if ch == " ":
@@ -525,23 +584,61 @@ class DungeonaGUI:
 
     def compute_scene_rects(self) -> List[Tuple[int, int, str]]:
         grid = dungeona.current_grid(self.state)
+        px = int(self.state["x"])
+        py = int(self.state["y"])
+        facing = int(self.state["facing"])
         items = dungeona.render_view(
             grid,
-            int(self.state["x"]),
-            int(self.state["y"]),
-            int(self.state["facing"]),
+            px,
+            py,
+            facing,
             self.view_width_cells,
             self.view_height_cells,
             self.state.get("wall_textures"),
+            self.state.get("floor_texture"),
+            self.state.get("ceiling_texture"),
             self.state.get("animated_sprites"),
             int(self.state.get("action_count", 0)),
         )
         rects: List[Tuple[int, int, str]] = []
+        wall_textures = self.state.get("wall_textures") or {}
+        cam_x = px + 0.5
+        cam_y = py + 0.5
+        dir_x, dir_y = dungeona.facing_vector(facing)
+        plane_x, plane_y = -dir_y * dungeona.FOV_SCALE, dir_x * dungeona.FOV_SCALE
+
+        wall_columns: Dict[int, Tuple[float, str, int, float, int, int]] = {}
+        for x in range(self.view_width_cells):
+            camera_x = 2.0 * x / max(1, self.view_width_cells - 1) - 1.0
+            ray_dir_x = dir_x + plane_x * camera_x
+            ray_dir_y = dir_y + plane_y * camera_x
+            distance, cell, side, wall_hit = dungeona.cast_perspective_ray(grid, cam_x, cam_y, ray_dir_x, ray_dir_y)
+            if cell in {"#", "D"}:
+                line_height = int((self.view_height_cells * 0.92) / max(0.001, distance))
+                draw_start = max(1, self.view_height_cells // 2 - line_height // 2)
+                draw_end = min(self.view_height_cells - 3, self.view_height_cells // 2 + line_height // 2)
+                wall_columns[x] = (distance, cell, side, wall_hit, draw_start, draw_end)
+
         for y, x, ch, color_id in items:
-            if 0 <= x < self.view_width_cells and 0 <= y < self.view_height_cells:
+            if not (0 <= x < self.view_width_cells and 0 <= y < self.view_height_cells):
+                continue
+            fill: Optional[str] = None
+            wall_sample = wall_columns.get(x)
+            if wall_sample is not None:
+                distance, cell, side, wall_hit, draw_start, draw_end = wall_sample
+                if draw_start <= y <= draw_end and color_id in {1, 2}:
+                    texture = wall_textures.get(cell)
+                    if texture is not None:
+                        y_ratio = (y - draw_start) / max(1, draw_end - draw_start)
+                        texture_cell = self.sample_texture_cell(texture, wall_hit, y_ratio)
+                        if texture_cell is not None:
+                            fill = self.texture_cell_fill(texture_cell)
+                            shade = max(0.22, min(1.08, (1.05 - min(1.0, distance / max(0.001, dungeona.MAX_RENDER_DEPTH)) * 0.55) * (0.84 if side == 1 else 1.0)))
+                            fill = self.shade_color(fill, shade)
+            if fill is None:
                 fill = self.char_fill(ch, color_id)
-                if fill is not None:
-                    rects.append((x, y, fill))
+            if fill is not None:
+                rects.append((x, y, fill))
         return rects
 
     def draw_view(self, force_scene: bool = False) -> None:

@@ -16,6 +16,8 @@ WALL_TEXTURE_FILES = {
     "#": "wall.ans",
     "D": "door.ans",
 }
+FLOOR_TEXTURE_FILE = "floor.ans"
+CEILING_TEXTURE_FILE = "ceiling.ans"
 RAT_ANIMATION_FILES = ["rat001.ans", "rat002.ans", "rat003.ans"]
 
 DIRECTIONS: List[Vec2] = [
@@ -254,6 +256,16 @@ def load_wall_textures() -> Dict[str, AnsiTexture]:
     return textures
 
 
+def load_surface_texture(filename: str) -> Optional[AnsiTexture]:
+    path = TEXTURE_DIR / filename
+    if not path.exists():
+        return None
+    try:
+        return load_ans_texture(path)
+    except Exception:
+        return None
+
+
 def texture_to_sprite_lines(texture: AnsiTexture) -> List[str]:
     lines = [line.rstrip() for line in texture.to_plain_lines()]
     while lines and not lines[-1]:
@@ -282,6 +294,17 @@ def texture_char_for_column(texture: Optional[AnsiTexture], x_ratio: float, y_ra
         return fallback
     tx = min(texture.width - 1, max(0, int(x_ratio * max(1, texture.width - 1))))
     ty = min(texture.height - 1, max(0, int(y_ratio * max(1, texture.height - 1))))
+    sampled = texture.sample_char(tx, ty, fallback)
+    return sampled if sampled.strip() else fallback
+
+
+def repeating_texture_char(texture: Optional[AnsiTexture], x_ratio: float, y_ratio: float, fallback: str) -> str:
+    if texture is None or texture.width <= 0 or texture.height <= 0:
+        return fallback
+    wrapped_x = x_ratio % 1.0
+    wrapped_y = y_ratio % 1.0
+    tx = min(texture.width - 1, max(0, int(wrapped_x * texture.width)))
+    ty = min(texture.height - 1, max(0, int(wrapped_y * texture.height)))
     sampled = texture.sample_char(tx, ty, fallback)
     return sampled if sampled.strip() else fallback
 
@@ -603,6 +626,8 @@ def render_view(
     width: int,
     height: int,
     wall_textures: Optional[Dict[str, AnsiTexture]] = None,
+    floor_texture: Optional[AnsiTexture] = None,
+    ceiling_texture: Optional[AnsiTexture] = None,
     animated_sprites: Optional[Dict[str, List[List[str]]]] = None,
     animation_step: int = 0,
 ) -> List[DrawItem]:
@@ -612,10 +637,31 @@ def render_view(
     dir_x, dir_y = facing_vector(facing)
     plane_x, plane_y = -dir_y * FOV_SCALE, dir_x * FOV_SCALE
 
-    for y in range(horizon, height - 2):
-        char = floor_char(y, horizon, height)
-        for x in range(width):
-            items.append((y, x, char, 4))
+    for y in range(1, height - 2):
+        if y < horizon:
+            ceiling_depth = (horizon - y) / max(1, horizon)
+            for x in range(width):
+                ceiling_x_ratio = x / max(1, width)
+                ceiling_y_ratio = ceiling_depth * 3.0
+                char = repeating_texture_char(
+                    ceiling_texture,
+                    ceiling_x_ratio * 2.0 + ceiling_depth * 0.35,
+                    ceiling_y_ratio,
+                    " ",
+                )
+                items.append((y, x, char, 4))
+        elif y > horizon:
+            floor_depth = (y - horizon) / max(1, height - horizon - 1)
+            base_char = floor_char(y, horizon, height)
+            for x in range(width):
+                floor_x_ratio = x / max(1, width)
+                char = repeating_texture_char(
+                    floor_texture,
+                    floor_x_ratio * (1.2 + floor_depth * 2.8),
+                    floor_depth * 3.2,
+                    base_char,
+                )
+                items.append((y, x, char, 4))
 
     for x in range(width):
         camera_x = 2.0 * x / max(1, width - 1) - 1.0
@@ -1038,6 +1084,8 @@ def draw_scene(stdscr, state: Dict[str, object]) -> None:
         width,
         view_height,
         state.get("wall_textures"),
+        state.get("floor_texture"),
+        state.get("ceiling_texture"),
         state.get("animated_sprites"),
         int(state.get("action_count", 0)),
     ):
@@ -1088,6 +1136,8 @@ def run(stdscr) -> int:
     floors = load_floors()
     start_floor, start_x, start_y = find_start_position(floors)
     wall_textures = load_wall_textures()
+    floor_texture = load_surface_texture(FLOOR_TEXTURE_FILE)
+    ceiling_texture = load_surface_texture(CEILING_TEXTURE_FILE)
     animated_sprites = load_animated_sprites()
     state: Dict[str, object] = {
         "floors": floors,
@@ -1103,6 +1153,8 @@ def run(stdscr) -> int:
         "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}. Beware of rats, skeletons, and ogres.",
         "show_congrats_banner": False,
         "wall_textures": wall_textures,
+        "floor_texture": floor_texture,
+        "ceiling_texture": ceiling_texture,
         "animated_sprites": animated_sprites,
         "action_count": 0,
         "monster_chase": {},

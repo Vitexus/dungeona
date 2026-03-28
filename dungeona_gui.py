@@ -1,28 +1,28 @@
 import tkinter as tk
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import dungeona
 
 CELL_SIZE = 8
 MINIMAP_TILE = 14
 VIEW_MARGIN = 12
-BACKGROUND = "#101215"
-CEILING_COLOR = "#1b2026"
-FLOOR_BASE = "#2f2a24"
-TEXT_COLOR = "#e6e6e6"
-STATUS_BG = "#171a1f"
+BACKGROUND = "#0a0c0f"
+CEILING_COLOR = "#11161c"
+FLOOR_BASE = "#1c1815"
+TEXT_COLOR = "#d8dee9"
+STATUS_BG = "#101419"
 
 COLOR_MAP = {
-    1: "#7f8790",
-    2: "#d2a44a",
-    3: "#5ccfe6",
-    4: "#6a5f52",
-    5: "#7a7f86",
-    6: "#54d26d",
-    7: "#d95f5f",
-    8: "#e6d05a",
-    9: "#9bc7ff",
-    10: "#c070e0",
+    1: "#586270",
+    2: "#b58a3b",
+    3: "#4fa7bf",
+    4: "#4e463e",
+    5: "#5c6670",
+    6: "#45a85a",
+    7: "#b45151",
+    8: "#c9b24a",
+    9: "#6f95c8",
+    10: "#8f5db0",
 }
 
 KEY_HELP = "WASD/arrows move, Q/E turn, Z/C strafe, Space act, . wait, M map, </> stairs"
@@ -76,9 +76,20 @@ class DungeonaGUI:
             f"and bring it to the altar on floor {dungeona.QUEST_TARGET_FLOOR + 1}."
         )
 
+        self.static_cache: Dict[str, object] = {
+            "background_key": None,
+            "background_items": [],
+            "frame_key": None,
+            "frame_items": [],
+            "last_render_key": None,
+            "last_render_items": [],
+        }
+        self.dynamic_scene_items: List[int] = []
+        self.dynamic_overlay_items: List[int] = []
+
         self.root.bind("<KeyPress>", self.on_key)
         self.root.bind("<Configure>", self.on_resize)
-        self.redraw()
+        self.redraw(force_scene=True)
 
     def color_for(self, color_id: int, default: str = "#cfcfcf") -> str:
         return COLOR_MAP.get(color_id, default)
@@ -108,16 +119,99 @@ class DungeonaGUI:
         boost = int(24 * (1.0 - depth))
         return f"#{min(255, r + boost):02x}{min(255, g + boost):02x}{min(255, b + boost):02x}"
 
+    def scene_origin(self) -> Tuple[int, int]:
+        return VIEW_MARGIN, VIEW_MARGIN
+
+    def clear_item_list(self, items: List[int]) -> None:
+        for item in items:
+            self.canvas.delete(item)
+        items.clear()
+
+    def rect_from_cells(self, x: int, y: int, w: int = 1, h: int = 1) -> Tuple[int, int, int, int]:
+        ox, oy = self.scene_origin()
+        return (
+            ox + x * CELL_SIZE,
+            oy + y * CELL_SIZE,
+            ox + (x + w) * CELL_SIZE,
+            oy + (y + h) * CELL_SIZE,
+        )
+
+    def draw_cell_rect(self, x: int, y: int, color: str) -> int:
+        x0, y0, x1, y1 = self.rect_from_cells(x, y)
+        return self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color)
+
+    def batch_runs_by_row(self, rects: List[Tuple[int, int, str]]) -> List[Tuple[int, int, int, str]]:
+        if not rects:
+            return []
+        rects = sorted(rects, key=lambda item: (item[1], item[0]))
+        runs: List[Tuple[int, int, int, str]] = []
+        start_x, y, color = rects[0]
+        width = 1
+        prev_x = start_x
+        for x, row_y, row_color in rects[1:]:
+            if row_y == y and row_color == color and x == prev_x + 1:
+                width += 1
+            else:
+                runs.append((start_x, y, width, color))
+                start_x, y, color = x, row_y, row_color
+                width = 1
+            prev_x = x
+        runs.append((start_x, y, width, color))
+        return runs
+
+    def create_batched_rectangles(self, rects: List[Tuple[int, int, str]], target_items: List[int]) -> None:
+        for x, y, width, color in self.batch_runs_by_row(rects):
+            x0, y0, x1, y1 = self.rect_from_cells(x, y, width, 1)
+            target_items.append(self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color))
+
+    def ensure_background_layer(self) -> None:
+        background_key = (self.view_width_cells, self.view_height_cells, CELL_SIZE)
+        if self.static_cache.get("background_key") == background_key:
+            return
+        old_items = self.static_cache.get("background_items", [])
+        if isinstance(old_items, list):
+            self.clear_item_list(old_items)
+        items: List[int] = []
+        for y in range(self.view_height_cells):
+            color = self.floor_band_color(y)
+            x0, y0, x1, y1 = self.rect_from_cells(0, y, self.view_width_cells, 1)
+            items.append(self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color))
+        self.static_cache["background_key"] = background_key
+        self.static_cache["background_items"] = items
+
+    def ensure_frame_layer(self) -> None:
+        frame_key = (self.view_width_px, self.view_height_px, self.status_height)
+        if self.static_cache.get("frame_key") == frame_key:
+            return
+        old_items = self.static_cache.get("frame_items", [])
+        if isinstance(old_items, list):
+            self.clear_item_list(old_items)
+        items: List[int] = []
+        left, top = self.scene_origin()
+        right = left + self.view_width_px
+        bottom = top + self.view_height_px
+        items.append(self.canvas.create_rectangle(left - 2, top - 2, right + 2, bottom + 2, outline="#20262d", width=2))
+        items.append(self.canvas.create_line(left + self.view_width_px // 2, top + self.view_height_px // 2 - 8, left + self.view_width_px // 2, top + self.view_height_px // 2 + 8, fill="#33404d"))
+        items.append(self.canvas.create_line(left + self.view_width_px // 2 - 8, top + self.view_height_px // 2, left + self.view_width_px // 2 + 8, top + self.view_height_px // 2, fill="#33404d"))
+        self.static_cache["frame_key"] = frame_key
+        self.static_cache["frame_items"] = items
+
     def on_resize(self, event) -> None:
         width = max(500, event.width)
         height = max(420, event.height)
         usable_w = max(320, width - VIEW_MARGIN * 2)
         usable_h = max(220, height - VIEW_MARGIN * 2 - self.status_height)
-        self.view_width_cells = max(48, usable_w // CELL_SIZE)
-        self.view_height_cells = max(32, usable_h // CELL_SIZE)
+        new_view_width_cells = max(48, usable_w // CELL_SIZE)
+        new_view_height_cells = max(32, usable_h // CELL_SIZE)
+        size_changed = (
+            new_view_width_cells != self.view_width_cells
+            or new_view_height_cells != self.view_height_cells
+        )
+        self.view_width_cells = new_view_width_cells
+        self.view_height_cells = new_view_height_cells
         self.view_width_px = self.view_width_cells * CELL_SIZE
         self.view_height_px = self.view_height_cells * CELL_SIZE
-        self.redraw()
+        self.redraw(force_scene=size_changed)
 
     def advance_if_acted(self, acted: bool) -> None:
         if acted:
@@ -182,26 +276,34 @@ class DungeonaGUI:
             return
 
         self.advance_if_acted(acted)
-        self.redraw()
+        self.redraw(force_scene=acted)
 
-    def draw_cell_rect(self, x: int, y: int, color: str) -> None:
-        x0 = VIEW_MARGIN + x * CELL_SIZE
-        y0 = VIEW_MARGIN + y * CELL_SIZE
-        self.canvas.create_rectangle(x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE, fill=color, outline=color)
+    def scene_render_key(self) -> Tuple[object, ...]:
+        return (
+            int(self.state["floor"]),
+            int(self.state["x"]),
+            int(self.state["y"]),
+            int(self.state["facing"]),
+            int(self.state.get("action_count", 0)),
+            self.view_width_cells,
+            self.view_height_cells,
+        )
 
-    def draw_background(self) -> None:
-        for y in range(self.view_height_cells):
-            color = self.floor_band_color(y)
-            self.canvas.create_rectangle(
-                VIEW_MARGIN,
-                VIEW_MARGIN + y * CELL_SIZE,
-                VIEW_MARGIN + self.view_width_px,
-                VIEW_MARGIN + (y + 1) * CELL_SIZE,
-                fill=color,
-                outline=color,
-            )
+    def char_fill(self, ch: str, color_id: int) -> Optional[str]:
+        if ch == " ":
+            return None
+        base = self.color_for(color_id)
+        if ch in {"░", ".", ",", "`", "_"}:
+            return self.shade_color(base, 0.62)
+        if ch in {"▒", "|", "/", "\\"}:
+            return self.shade_color(base, 0.80)
+        if ch in {"▓", "=", "+", "#"}:
+            return self.shade_color(base, 0.96)
+        if ch in {"█", "@", "%", "&"}:
+            return self.shade_color(base, 1.08)
+        return self.shade_color(base, 1.00)
 
-    def draw_view(self) -> None:
+    def compute_scene_rects(self) -> List[Tuple[int, int, str]]:
         grid = dungeona.current_grid(self.state)
         items = dungeona.render_view(
             grid,
@@ -214,20 +316,25 @@ class DungeonaGUI:
             self.state.get("animated_sprites"),
             int(self.state.get("action_count", 0)),
         )
+        rects: List[Tuple[int, int, str]] = []
         for y, x, ch, color_id in items:
             if 0 <= x < self.view_width_cells and 0 <= y < self.view_height_cells:
-                if ch == " ":
-                    continue
-                base = self.color_for(color_id)
-                if ch in {"░", ".", ",", "`", "_"}:
-                    fill = self.shade_color(base, 0.6)
-                elif ch in {"▒", "|", "/", "\\"}:
-                    fill = self.shade_color(base, 0.8)
-                elif ch in {"▓", "=", "+", "#"}:
-                    fill = self.shade_color(base, 1.0)
-                else:
-                    fill = self.shade_color(base, 1.15)
-                self.draw_cell_rect(x, y, fill)
+                fill = self.char_fill(ch, color_id)
+                if fill is not None:
+                    rects.append((x, y, fill))
+        return rects
+
+    def draw_view(self, force_scene: bool = False) -> None:
+        render_key = self.scene_render_key()
+        if force_scene or self.static_cache.get("last_render_key") != render_key:
+            rects = self.compute_scene_rects()
+            self.static_cache["last_render_key"] = render_key
+            self.static_cache["last_render_items"] = rects
+        else:
+            rects = self.static_cache.get("last_render_items", [])
+        self.clear_item_list(self.dynamic_scene_items)
+        if isinstance(rects, list):
+            self.create_batched_rectangles(rects, self.dynamic_scene_items)
 
     def draw_minimap(self) -> None:
         if not bool(self.state.get("show_map")):
@@ -240,15 +347,15 @@ class DungeonaGUI:
         top = VIEW_MARGIN + 10
         radius = 4
 
-        self.canvas.create_rectangle(
+        self.dynamic_overlay_items.append(self.canvas.create_rectangle(
             left - 8,
             top - 22,
             left + self.minimap_size + 8,
             top + self.minimap_size + 8,
-            fill="#0d1015",
-            outline="#5a6a7a",
-        )
-        self.canvas.create_text(left, top - 12, anchor="w", fill="#9bc7ff", text=f"F{int(self.state['floor']) + 1}", font=("TkFixedFont", 10, "bold"))
+            fill="#0b0f14",
+            outline="#2c3742",
+        ))
+        self.dynamic_overlay_items.append(self.canvas.create_text(left, top - 12, anchor="w", fill="#7f9bb8", text=f"F{int(self.state['floor']) + 1}", font=("TkFixedFont", 10, "bold")))
 
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
@@ -257,48 +364,48 @@ class DungeonaGUI:
                 cell = dungeona.cell_at(grid, mx, my)
                 x0 = left + (dx + radius) * MINIMAP_TILE
                 y0 = top + (dy + radius) * MINIMAP_TILE
-                color = "#20252c"
+                color = "#161b21"
                 if cell == "#":
-                    color = "#7a7f86"
+                    color = "#4e5762"
                 elif cell == "D":
-                    color = "#d2a44a"
+                    color = "#9f7833"
                 elif dungeona.is_monster(cell):
                     info = dungeona.monster_info(cell if cell in dungeona.MONSTER_TILES else "R")
                     color = self.color_for(int(info["color"]))
                 elif cell == dungeona.QUEST_ITEM_TILE:
-                    color = "#e6d05a"
+                    color = "#bba643"
                 elif cell == dungeona.QUEST_TARGET_TILE:
-                    color = "#b06ad6"
+                    color = "#7f4ea1"
                 elif cell in {"<", ">"}:
-                    color = "#8dbbff"
+                    color = "#5d7fae"
                 elif cell in {".", " "}:
-                    color = "#3d352d"
-                self.canvas.create_rectangle(x0, y0, x0 + MINIMAP_TILE - 1, y0 + MINIMAP_TILE - 1, fill=color, outline="#0f1114")
+                    color = "#2a241f"
+                self.dynamic_overlay_items.append(self.canvas.create_rectangle(x0, y0, x0 + MINIMAP_TILE - 1, y0 + MINIMAP_TILE - 1, fill=color, outline="#0a0d10"))
 
         center_x = left + radius * MINIMAP_TILE + MINIMAP_TILE // 2
         center_y = top + radius * MINIMAP_TILE + MINIMAP_TILE // 2
-        self.canvas.create_oval(center_x - 4, center_y - 4, center_x + 4, center_y + 4, fill="#54d26d", outline="")
+        self.dynamic_overlay_items.append(self.canvas.create_oval(center_x - 4, center_y - 4, center_x + 4, center_y + 4, fill="#48b060", outline=""))
         dx, dy = dungeona.DIRECTIONS[facing]
-        self.canvas.create_line(center_x, center_y, center_x + dx * 8, center_y + dy * 8, fill="#54d26d", width=2)
+        self.dynamic_overlay_items.append(self.canvas.create_line(center_x, center_y, center_x + dx * 8, center_y + dy * 8, fill="#48b060", width=2))
 
     def draw_status(self) -> None:
         y0 = VIEW_MARGIN + self.view_height_px + 8
         width = self.view_width_px
-        self.canvas.create_rectangle(
+        self.dynamic_overlay_items.append(self.canvas.create_rectangle(
             VIEW_MARGIN,
             y0,
             VIEW_MARGIN + width,
             y0 + self.status_height,
             fill=STATUS_BG,
-            outline="#2e3742",
-        )
+            outline="#26303a",
+        ))
 
         energy = int(self.state["energy"])
         bar_w = 220
         fill_w = int(bar_w * energy / max(1, dungeona.MAX_ENERGY))
-        self.canvas.create_text(VIEW_MARGIN + 12, y0 + 16, anchor="w", fill=TEXT_COLOR, text="Energy", font=("TkFixedFont", 10, "bold"))
-        self.canvas.create_rectangle(VIEW_MARGIN + 72, y0 + 8, VIEW_MARGIN + 72 + bar_w, y0 + 24, fill="#2b3138", outline="#495463")
-        self.canvas.create_rectangle(VIEW_MARGIN + 72, y0 + 8, VIEW_MARGIN + 72 + fill_w, y0 + 24, fill="#54d26d", outline="")
+        self.dynamic_overlay_items.append(self.canvas.create_text(VIEW_MARGIN + 12, y0 + 16, anchor="w", fill=TEXT_COLOR, text="Energy", font=("TkFixedFont", 10, "bold")))
+        self.dynamic_overlay_items.append(self.canvas.create_rectangle(VIEW_MARGIN + 72, y0 + 8, VIEW_MARGIN + 72 + bar_w, y0 + 24, fill="#1e252c", outline="#34404c"))
+        self.dynamic_overlay_items.append(self.canvas.create_rectangle(VIEW_MARGIN + 72, y0 + 8, VIEW_MARGIN + 72 + fill_w, y0 + 24, fill="#48b060", outline=""))
 
         quest_status = "done" if bool(self.state["quest_complete"]) else ("carrying" if bool(self.state["has_grail"]) else "missing")
         line1 = (
@@ -310,42 +417,41 @@ class DungeonaGUI:
         line2 = f"Inventory {dungeona.inventory_count(self.state)}/{dungeona.MAX_CARRIED_ITEMS}   Grail {quest_status}"
         line3 = str(self.state["message"])
 
-        self.canvas.create_text(VIEW_MARGIN + 12, y0 + 40, anchor="w", fill=TEXT_COLOR, text=line1, font=("TkFixedFont", 10))
-        self.canvas.create_text(VIEW_MARGIN + 12, y0 + 58, anchor="w", fill="#e6d05a", text=line2, font=("TkFixedFont", 10))
-        self.canvas.create_text(VIEW_MARGIN + 12, y0 + 76, anchor="w", fill="#9bc7ff", text=line3[:120], font=("TkFixedFont", 10))
-
-        self.canvas.create_text(VIEW_MARGIN + width - 12, y0 + 16, anchor="e", fill="#9aa7b5", text=KEY_HELP, font=("TkFixedFont", 9))
+        self.dynamic_overlay_items.append(self.canvas.create_text(VIEW_MARGIN + 12, y0 + 40, anchor="w", fill=TEXT_COLOR, text=line1, font=("TkFixedFont", 10)))
+        self.dynamic_overlay_items.append(self.canvas.create_text(VIEW_MARGIN + 12, y0 + 58, anchor="w", fill="#c9b24a", text=line2, font=("TkFixedFont", 10)))
+        self.dynamic_overlay_items.append(self.canvas.create_text(VIEW_MARGIN + 12, y0 + 76, anchor="w", fill="#7f9bb8", text=line3[:120], font=("TkFixedFont", 10)))
+        self.dynamic_overlay_items.append(self.canvas.create_text(VIEW_MARGIN + width - 12, y0 + 16, anchor="e", fill="#7f8b97", text=KEY_HELP, font=("TkFixedFont", 9)))
 
     def draw_congrats_overlay(self) -> None:
         if not bool(self.state.get("show_congrats_banner")):
             return
         width = self.view_width_px
         height = self.view_height_px
-        left = VIEW_MARGIN + 40
-        top = VIEW_MARGIN + 40
-        right = VIEW_MARGIN + width - 40
-        bottom = VIEW_MARGIN + height - 40
-        self.canvas.create_rectangle(left, top, right, bottom, fill="#121212", outline="#e6d05a", width=3)
-        for idx, line in enumerate(dungeona.CONGRATS_BANNER):
-            self.canvas.create_text(
-                (left + right) // 2,
-                top + 40 + idx * 18,
-                text=line,
-                fill="#f3dd75",
-                font=("TkFixedFont", 11, "bold"),
-            )
-        self.canvas.create_text(
+        left = VIEW_MARGIN + 80
+        top = VIEW_MARGIN + max(60, height // 3)
+        right = VIEW_MARGIN + width - 80
+        bottom = top + 120
+        self.dynamic_overlay_items.append(self.canvas.create_rectangle(left, top, right, bottom, fill="#0d1014", outline="#c9b24a", width=3))
+        self.dynamic_overlay_items.append(self.canvas.create_text(
             (left + right) // 2,
-            bottom - 28,
+            top + 42,
+            text="Congratulations.",
+            fill="#d8c15f",
+            font=("TkFixedFont", 22, "bold"),
+        ))
+        self.dynamic_overlay_items.append(self.canvas.create_text(
+            (left + right) // 2,
+            top + 78,
             text="Press any movement/action key to continue",
-            fill="#ffffff",
+            fill="#d8dee9",
             font=("TkFixedFont", 10),
-        )
+        ))
 
-    def redraw(self) -> None:
-        self.canvas.delete("all")
-        self.draw_background()
-        self.draw_view()
+    def redraw(self, force_scene: bool = False) -> None:
+        self.ensure_background_layer()
+        self.ensure_frame_layer()
+        self.draw_view(force_scene=force_scene)
+        self.clear_item_list(self.dynamic_overlay_items)
         self.draw_minimap()
         self.draw_status()
         self.draw_congrats_overlay()

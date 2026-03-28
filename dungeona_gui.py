@@ -86,6 +86,8 @@ class DungeonaGUI:
         }
         self.dynamic_scene_items: List[int] = []
         self.dynamic_overlay_items: List[int] = []
+        self.monster_detail_items: List[int] = []
+        self.item_detail_items: List[int] = []
 
         self.root.bind("<KeyPress>", self.on_key)
         self.root.bind("<Configure>", self.on_resize)
@@ -303,6 +305,224 @@ class DungeonaGUI:
             return self.shade_color(base, 1.08)
         return self.shade_color(base, 1.00)
 
+    def detailed_monster_palette(self, monster_tile: str) -> Dict[str, str]:
+        info = dungeona.monster_info(monster_tile)
+        base = self.color_for(int(info["color"]))
+        if monster_tile == "S":
+            base = "#c9ced6"
+            return {
+                "base": base,
+                "shadow": self.shade_color(base, 0.42),
+                "mid": self.shade_color(base, 0.74),
+                "light": self.shade_color(base, 1.08),
+                "accent": "#7a5dcb",
+                "eye": "#7fd7ff",
+                "bone": self.shade_color(base, 1.18),
+            }
+        if monster_tile == "O":
+            base = "#6f8d52"
+            return {
+                "base": base,
+                "shadow": self.shade_color(base, 0.40),
+                "mid": self.shade_color(base, 0.72),
+                "light": self.shade_color(base, 1.02),
+                "accent": "#b8a06a",
+                "eye": "#ffb347",
+                "bone": self.shade_color(base, 1.12),
+            }
+        return {
+            "base": base,
+            "shadow": self.shade_color(base, 0.38),
+            "mid": self.shade_color(base, 0.72),
+            "light": self.shade_color(base, 1.06),
+            "accent": "#d9a35f",
+            "eye": "#ff6b57",
+            "bone": self.shade_color(base, 1.10),
+        }
+
+    def visible_monster_info(self) -> Optional[Tuple[int, int, int, str]]:
+        grid = dungeona.current_grid(self.state)
+        return dungeona.visible_monster(
+            grid,
+            int(self.state["x"]),
+            int(self.state["y"]),
+            int(self.state["facing"]),
+        )
+
+    def detailed_item_palette(self, item_tile: str) -> Dict[str, str]:
+        if item_tile == dungeona.QUEST_TARGET_TILE:
+            base = "#8f5db0"
+            return {
+                "base": base,
+                "shadow": self.shade_color(base, 0.42),
+                "mid": self.shade_color(base, 0.76),
+                "light": self.shade_color(base, 1.08),
+                "accent": "#d9d2ea",
+                "glow": "#b794d8",
+                "spark": "#efe6ff",
+            }
+        base = "#c9b24a"
+        return {
+            "base": base,
+            "shadow": self.shade_color(base, 0.42),
+            "mid": self.shade_color(base, 0.78),
+            "light": self.shade_color(base, 1.08),
+            "accent": "#fff2a6",
+            "glow": "#e0c85d",
+            "spark": "#fff7cc",
+        }
+
+    def draw_enhanced_item_detail_art(self, item_tile: str, distance: int, side: int) -> None:
+        palette = self.detailed_item_palette(item_tile)
+        center_x = self.view_width_cells // 2 + side * max(2, self.view_width_cells // max(9, 10 + distance * 2))
+        floor_y = self.view_height_cells - 4
+        scale = max(0.85, 3.0 / (distance + 0.2))
+        scale *= 1.12 if side == 0 else 0.82
+
+        if item_tile == dungeona.QUEST_TARGET_TILE:
+            body_w = max(7, int(round(12 * scale)))
+            body_h = max(6, int(round(9 * scale)))
+        else:
+            body_w = max(6, int(round(9 * scale)))
+            body_h = max(7, int(round(10 * scale)))
+
+        left = center_x - body_w // 2
+        top = floor_y - body_h + 1
+
+        shadow_w = max(4, int(body_w * 0.95))
+        shadow_h = max(2, int(body_h * 0.18))
+        x0, y0, x1, y1 = self.rect_from_cells(center_x - shadow_w // 2, floor_y + 1, shadow_w, shadow_h)
+        self.item_detail_items.append(self.canvas.create_oval(x0, y0, x1, y1, fill="#090a0c", outline=""))
+
+        def add_rect(cx: int, cy: int, cw: int, ch: int, color: str, outline: str = "") -> None:
+            x0, y0, x1, y1 = self.rect_from_cells(cx, cy, cw, ch)
+            self.item_detail_items.append(self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=outline or color))
+
+        def add_glow(cx: int, cy: int, cw: int, ch: int, color: str) -> None:
+            x0, y0, x1, y1 = self.rect_from_cells(cx, cy, cw, ch)
+            pad = max(1, CELL_SIZE // 3)
+            self.item_detail_items.append(self.canvas.create_oval(x0 - pad, y0 - pad, x1 + pad, y1 + pad, fill=color, outline=""))
+
+        if item_tile == dungeona.QUEST_TARGET_TILE:
+            add_rect(left + 1, top + body_h - 2, max(5, body_w - 2), 2, palette["shadow"])
+            add_rect(left + 2, top + body_h - 4, max(4, body_w - 4), 2, palette["mid"])
+            add_rect(left + 3, top + 2, max(3, body_w - 6), max(2, body_h - 6), palette["base"])
+            add_rect(left + 2, top + 1, max(5, body_w - 4), 2, palette["light"])
+            add_rect(left + 1, top + 2, 1, max(3, body_h - 4), palette["shadow"])
+            add_rect(left + body_w - 2, top + 2, 1, max(3, body_h - 4), palette["shadow"])
+            add_rect(left + body_w // 2 - 1, top + 2, 2, max(2, body_h - 5), palette["accent"])
+            add_rect(left + body_w // 3, top + body_h // 2, max(1, body_w // 6), 1, palette["accent"])
+            add_rect(left + body_w - 1 - max(1, body_w // 6) - body_w // 3, top + body_h // 2, max(1, body_w // 6), 1, palette["accent"])
+            add_glow(left + body_w // 2 - 1, top + 1, 2, 1, self.shade_color(palette["glow"], 0.95))
+            add_rect(left + body_w // 2, top + 0, 1, 1, palette["spark"])
+        else:
+            cup_w = max(4, body_w - 3)
+            add_rect(left + 1, top + body_h - 2, max(3, body_w - 2), 1, palette["shadow"])
+            add_rect(left + 2, top + 1, cup_w, max(2, body_h // 3), palette["light"])
+            add_rect(left + 1, top + 2, 1, max(2, body_h // 3), palette["accent"])
+            add_rect(left + body_w - 2, top + 2, 1, max(2, body_h // 3), palette["accent"])
+            add_rect(left + 3, top + body_h // 3 + 1, max(2, body_w - 6), max(1, body_h // 4), palette["mid"])
+            add_rect(left + body_w // 2 - 1, top + body_h // 2, 2, max(2, body_h // 3), palette["base"])
+            add_rect(left + body_w // 2 - max(2, body_w // 4), top + body_h - 1, max(4, body_w // 2), 1, palette["mid"])
+            add_glow(left + 2, top + 0, max(2, body_w - 4), 1, self.shade_color(palette["glow"], 0.9))
+            add_rect(left + body_w // 2, top + 0, 1, 1, palette["spark"])
+
+    def draw_item_detail_art(self) -> None:
+        self.clear_item_list(self.item_detail_items)
+        grid = dungeona.current_grid(self.state)
+        px = int(self.state["x"])
+        py = int(self.state["y"])
+        facing = int(self.state["facing"])
+        visible_grail = dungeona.grail_in_view(grid, px, py, facing)
+        visible_altar = dungeona.altar_in_view(grid, px, py, facing)
+        candidates: List[Tuple[int, int, str]] = []
+        if visible_grail is not None:
+            distance, side, _ = visible_grail
+            candidates.append((distance, side, dungeona.QUEST_ITEM_TILE))
+        if visible_altar is not None:
+            distance, side, _ = visible_altar
+            candidates.append((distance, side, dungeona.QUEST_TARGET_TILE))
+        if not candidates:
+            return
+        distance, side, item_tile = sorted(candidates, key=lambda entry: entry[0])[0]
+        self.draw_enhanced_item_detail_art(item_tile, distance, side)
+
+    def draw_monster_detail_art(self) -> None:
+        self.clear_item_list(self.monster_detail_items)
+        seen = self.visible_monster_info()
+        if seen is None:
+            return
+        distance, side, _lateral, monster_tile = seen
+        palette = self.detailed_monster_palette(monster_tile)
+        info = dungeona.monster_info(monster_tile)
+        center_x = self.view_width_cells // 2 + side * max(3, self.view_width_cells // max(8, 9 + distance * 2))
+        floor_y = self.view_height_cells - 4
+        scale = max(0.9, 3.2 / (distance + 0.15))
+        scale *= 1.12 if side == 0 else 0.84
+        body_w = max(6, int(round(10 * scale)))
+        body_h = max(6, int(round(10 * scale)))
+        left = center_x - body_w // 2
+        top = floor_y - body_h + 1
+
+        shadow_w = max(4, int(body_w * 0.9))
+        shadow_h = max(2, int(body_h * 0.18))
+        x0, y0, x1, y1 = self.rect_from_cells(center_x - shadow_w // 2, floor_y + 1, shadow_w, shadow_h)
+        self.monster_detail_items.append(self.canvas.create_oval(x0, y0, x1, y1, fill="#0a0b0d", outline=""))
+
+        def add_rect(cx: int, cy: int, cw: int, ch: int, color: str, outline: str = "") -> None:
+            x0, y0, x1, y1 = self.rect_from_cells(cx, cy, cw, ch)
+            self.monster_detail_items.append(self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=outline or color))
+
+        def add_eye(ex: int, ey: int, glow: str, pupil: str) -> None:
+            gx0, gy0, gx1, gy1 = self.rect_from_cells(ex, ey, 1, 1)
+            pad = max(1, CELL_SIZE // 3)
+            self.monster_detail_items.append(self.canvas.create_oval(gx0 - pad, gy0 - pad, gx1 + pad, gy1 + pad, fill=glow, outline=""))
+            self.monster_detail_items.append(self.canvas.create_oval(gx0 + 1, gy0 + 1, gx1 - 1, gy1 - 1, fill=pupil, outline=""))
+
+        if monster_tile == "R":
+            add_rect(left + 2, top + 3, max(4, body_w - 4), max(3, body_h - 4), palette["mid"])
+            add_rect(left + 3, top + 2, max(4, body_w - 5), max(3, body_h // 2), palette["light"])
+            add_rect(left + body_w - 3, top + body_h // 2, 2, 2, palette["accent"])
+            add_rect(left + 1, top + 2, 2, 2, palette["light"])
+            add_rect(left + body_w - 1, top + 1, 1, max(3, body_h // 2), palette["bone"])
+            add_rect(left + 0, top + body_h - 2, max(2, body_w // 4), 1, palette["shadow"])
+            add_rect(left + body_w // 3, top + body_h - 1, max(2, body_w // 5), 1, palette["shadow"])
+            add_rect(left + body_w - 3, top + body_h - 2, 1, 2, palette["shadow"])
+            add_eye(left + body_w // 3, top + max(1, body_h // 3), self.shade_color(palette["eye"], 1.2), palette["eye"])
+            add_eye(left + body_w // 2 + 1, top + max(1, body_h // 3), self.shade_color(palette["eye"], 1.2), palette["eye"])
+        elif monster_tile == "S":
+            skull_w = max(4, body_w - 4)
+            skull_h = max(3, body_h // 3)
+            rib_w = max(3, body_w - 6)
+            add_rect(left + 2, top + 1, skull_w, skull_h, palette["bone"])
+            add_rect(left + 3, top + 2, skull_w - 2, max(1, skull_h - 2), palette["light"])
+            add_rect(left + 3, top + skull_h + 1, rib_w, max(3, body_h // 3), palette["mid"])
+            add_rect(left + body_w // 2 - 1, top + skull_h, 2, max(4, body_h // 2), palette["shadow"])
+            add_rect(left + 2, top + body_h - 3, 1, 3, palette["bone"])
+            add_rect(left + body_w - 3, top + body_h - 3, 1, 3, palette["bone"])
+            add_rect(left + 1, top + body_h - 1, max(2, body_w // 3), 1, palette["shadow"])
+            add_rect(left + body_w - 1 - max(2, body_w // 3), top + body_h - 1, max(2, body_w // 3), 1, palette["shadow"])
+            add_eye(left + body_w // 3, top + 2, self.shade_color(palette["eye"], 0.7), palette["eye"])
+            add_eye(left + body_w // 2 + 1, top + 2, self.shade_color(palette["eye"], 0.7), palette["eye"])
+            add_rect(left + body_w // 2 - 1, top + skull_h - 1, 2, 1, palette["accent"])
+        else:
+            add_rect(left + 1, top + 2, max(5, body_w - 2), max(4, body_h - 3), palette["base"])
+            add_rect(left + 2, top + 1, max(4, body_w - 4), max(3, body_h // 2), palette["light"])
+            add_rect(left + 0, top + body_h // 2, 2, max(3, body_h // 2), palette["shadow"])
+            add_rect(left + body_w - 2, top + body_h // 2, 2, max(3, body_h // 2), palette["shadow"])
+            add_rect(left + body_w // 3, top + body_h - 2, max(2, body_w // 5), 2, palette["shadow"])
+            add_rect(left + body_w // 2 + 1, top + body_h - 2, max(2, body_w // 5), 2, palette["shadow"])
+            add_rect(left + 2, top + 0, max(2, body_w // 4), 2, palette["accent"])
+            add_rect(left + body_w - 2 - max(2, body_w // 4), top + 0, max(2, body_w // 4), 2, palette["accent"])
+            add_eye(left + body_w // 3, top + max(1, body_h // 3), self.shade_color(palette["eye"], 0.9), palette["eye"])
+            add_eye(left + body_w // 2 + 1, top + max(1, body_h // 3), self.shade_color(palette["eye"], 0.9), palette["eye"])
+
+        #if scale >= 1.15:
+        #    label = str(info["name"]).upper()
+        #    tx = VIEW_MARGIN + center_x * CELL_SIZE
+        #    ty = VIEW_MARGIN + max(8, top - 2) * CELL_SIZE
+        #    self.monster_detail_items.append(self.canvas.create_text(tx, ty, text=label, fill=self.shade_color(palette["light"], 1.05), font=("TkFixedFont", max(8, int(8 * scale)), "bold")))
+
     def compute_scene_rects(self) -> List[Tuple[int, int, str]]:
         grid = dungeona.current_grid(self.state)
         items = dungeona.render_view(
@@ -451,6 +671,8 @@ class DungeonaGUI:
         self.ensure_background_layer()
         self.ensure_frame_layer()
         self.draw_view(force_scene=force_scene)
+        self.draw_monster_detail_art()
+        self.draw_item_detail_art()
         self.clear_item_list(self.dynamic_overlay_items)
         self.draw_minimap()
         self.draw_status()

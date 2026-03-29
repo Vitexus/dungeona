@@ -1,12 +1,11 @@
-import math
 import tkinter as tk
 from typing import Dict, List, Optional, Tuple
 
 import dungeona
-from ans import AnsiCell, AnsiTexture
+from ans import AnsiCell, AnsiTexture, COLOR_NAME_BY_CODE
 
-WINDOW_WIDTH = 320
-WINDOW_HEIGHT = 200
+WINDOW_WIDTH = 640
+WINDOW_HEIGHT = 400
 STATUS_HEIGHT = 64
 VIEW_HEIGHT = WINDOW_HEIGHT - STATUS_HEIGHT
 BACKGROUND = "#0a0c0f"
@@ -81,8 +80,8 @@ class DungeonaRenderer:
         self.cell_h = CELL_H
         self.minimap_tile = MINIMAP_TILE
         self.view_height = self.window_height - self.status_height
-        self.view_width_cells = VIEW_WIDTH_CELLS
-        self.view_height_cells = VIEW_HEIGHT_CELLS
+        self.view_width_cells = self.window_width // self.cell_w
+        self.view_height_cells = self.view_height // self.cell_h
 
         self.canvas = tk.Canvas(
             self.root,
@@ -112,7 +111,6 @@ class DungeonaRenderer:
             "floor_texture": dungeona.load_surface_texture(dungeona.FLOOR_TEXTURE_FILE),
             "ceiling_texture": dungeona.load_surface_texture(dungeona.CEILING_TEXTURE_FILE),
             "animated_sprites": dungeona.load_animated_sprites(),
-            "static_sprites": dungeona.load_static_sprites(),
             "action_count": 0,
             "monster_chase": {},
         }
@@ -123,6 +121,8 @@ class DungeonaRenderer:
         )
 
         self.static_cache: Dict[str, object] = {
+            "background_key": None,
+            "background_items": [],
             "frame_key": None,
             "frame_items": [],
             "last_render_key": None,
@@ -132,7 +132,6 @@ class DungeonaRenderer:
         self.dynamic_overlay_items: List[int] = []
         self.monster_detail_items: List[int] = []
         self.item_detail_items: List[int] = []
-        self.view_antialias_samples = 2
 
         self.root.bind("<KeyPress>", self.on_key)
         self.root.bind("<Configure>", self.on_resize)
@@ -153,18 +152,36 @@ class DungeonaRenderer:
         b = max(0, min(255, int(b * factor)))
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def mix_colors(self, color_a: str, color_b: str, amount: float) -> str:
-        amount = max(0.0, min(1.0, amount))
-        a = color_a.lstrip("#")
-        b = color_b.lstrip("#")
-        if len(a) != 6 or len(b) != 6:
-            return color_a
-        ar, ag, ab = int(a[0:2], 16), int(a[2:4], 16), int(a[4:6], 16)
-        br, bg, bb = int(b[0:2], 16), int(b[2:4], 16), int(b[4:6], 16)
-        r = int(ar * (1.0 - amount) + br * amount)
-        g = int(ag * (1.0 - amount) + bg * amount)
-        b2 = int(ab * (1.0 - amount) + bb * amount)
-        return f"#{r:02x}{g:02x}{b2:02x}"
+    def blend_colors(self, low: str, high: str, high_weight: float) -> str:
+        low = low.lstrip("#")
+        high = high.lstrip("#")
+        if len(low) != 6 or len(high) != 6:
+            return high if high_weight >= 0.5 else low
+        high_weight = max(0.0, min(1.0, high_weight))
+        low_weight = 1.0 - high_weight
+        lr = int(low[0:2], 16)
+        lg = int(low[2:4], 16)
+        lb = int(low[4:6], 16)
+        hr = int(high[0:2], 16)
+        hg = int(high[2:4], 16)
+        hb = int(high[4:6], 16)
+        r = int(lr * low_weight + hr * high_weight)
+        g = int(lg * low_weight + hg * high_weight)
+        b = int(lb * low_weight + hb * high_weight)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def floor_band_color(self, row: int) -> str:
+        ratio = row / max(1, self.view_height_cells - 1)
+        if ratio < 0.58:
+            return "#11161c"
+        depth = (ratio - 0.58) / 0.42
+        depth = max(0.0, min(1.0, depth))
+        base = "#1c1815".lstrip("#")
+        r = int(base[0:2], 16)
+        g = int(base[2:4], 16)
+        b = int(base[4:6], 16)
+        boost = int(24 * (1.0 - depth))
+        return f"#{min(255, r + boost):02x}{min(255, g + boost):02x}{min(255, b + boost):02x}"
 
     def clear_item_list(self, items: List[int]) -> None:
         for item in items:
@@ -193,86 +210,41 @@ class DungeonaRenderer:
             (y + h) * self.cell_h,
         )
 
-    def batch_runs_by_row(self, rects: List[Tuple[int, int, str]]) -> List[Tuple[int, int, int, str]]:
-        if not rects:
-            return []
-        rects = sorted(rects, key=lambda item: (item[1], item[0]))
+    def fill_rows_to_runs(self, fill_rows: List[List[Optional[str]]]) -> List[Tuple[int, int, int, str]]:
         runs: List[Tuple[int, int, int, str]] = []
-        start_x, y, color = rects[0]
-        width = 1
-        prev_x = start_x
-        for x, row_y, row_color in rects[1:]:
-            if row_y == y and row_color == color and x == prev_x + 1:
-                width += 1
-            else:
-                runs.append((start_x, y, width, color))
-                start_x, y, color = x, row_y, row_color
-                width = 1
-            prev_x = x
-        runs.append((start_x, y, width, color))
+        for y, row in enumerate(fill_rows):
+            start_x: Optional[int] = None
+            current_color: Optional[str] = None
+            for x, color in enumerate(row):
+                if color == current_color:
+                    continue
+                if current_color is not None and start_x is not None:
+                    runs.append((start_x, y, x - start_x, current_color))
+                start_x = x if color is not None else None
+                current_color = color
+            if current_color is not None and start_x is not None:
+                runs.append((start_x, y, len(row) - start_x, current_color))
         return runs
 
-    def create_batched_rectangles(self, rects: List[Tuple[int, int, str]], target_items: List[int]) -> None:
-        for x, y, width, color in self.batch_runs_by_row(rects):
+    def create_batched_rectangles(self, runs: List[Tuple[int, int, int, str]], target_items: List[int]) -> None:
+        for x, y, width, color in runs:
             x0, y0, x1, y1 = self.rect_from_cells(x, y, width, 1)
             target_items.append(self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color))
 
-    def procedural_ceiling_color(self, x: int, y: int) -> str:
-        horizon = self.view_height_cells // 2
-        ratio = y / max(1, horizon)
-        base = "#2a2018"
-        color = self.mix_colors(base, "#3b2b1f", 0.25 * (1.0 - ratio))
-        plank_h = max(2, 3 // max(1, self.render_scale))
-        board = (y // plank_h) % 6
-        grain = ((x * 3 + y * 5) % 9)
-        factor = 0.88 + board * 0.015 + grain * 0.01
-        if y % plank_h == 0:
-            factor *= 0.72
-        if x % max(6, 10 // max(1, self.render_scale)) == 0:
-            factor *= 0.92
-        return self.shade_color(color, min(1.08, factor))
-
-    def floor_distance_shade(self, distance: float) -> float:
-        depth = max(0.0, min(1.0, distance / max(0.001, dungeona.MAX_RENDER_DEPTH)))
-        return max(0.28, 1.18 - depth * 0.92)
-
-    def procedural_floor_world_color(self, world_x: float, world_y: float, distance: float) -> str:
-        tile_x = math.floor(world_x)
-        tile_y = math.floor(world_y)
-        frac_x = world_x - tile_x
-        frac_y = world_y - tile_y
-
-        slab_mix = ((tile_x * 17 + tile_y * 31) & 15) / 15.0
-        base = self.mix_colors("#5b5750", "#8b867d", slab_mix * 0.55)
-
-        seam_w = max(0.025, 0.06 - min(0.03, distance * 0.002))
-        edge_dist = min(frac_x, frac_y, 1.0 - frac_x, 1.0 - frac_y)
-        if edge_dist < seam_w * 0.55:
-            color = "#2b2724"
-        elif edge_dist < seam_w:
-            color = "#3a3531"
-        else:
-            color = base
-            chip = ((tile_x * 13 + tile_y * 11 + int(frac_x * 11) * 5 + int(frac_y * 9) * 7) % 23)
-            speck = ((tile_x * 19 + tile_y * 23 + int(frac_x * 17) * 3 + int(frac_y * 13) * 5) % 29)
-            vein = abs(frac_x - frac_y) < 0.035 or abs(frac_x - (1.0 - frac_y)) < 0.03
-            if chip in {0, 1}:
-                color = self.shade_color(color, 0.72)
-            elif chip in {2, 3, 4}:
-                color = self.shade_color(color, 0.86)
-            if speck in {0, 1, 2, 27, 28}:
-                color = self.shade_color(color, 1.10)
-            elif speck in {7, 8, 9}:
-                color = self.shade_color(color, 0.92)
-            if vein:
-                color = self.mix_colors(color, "#a8a39a", 0.10)
-            highlight = (0.5 - abs(frac_x - 0.5)) * 0.08 + (0.5 - abs(frac_y - 0.5)) * 0.05
-            color = self.shade_color(color, 0.98 + highlight)
-
-        distance_factor = self.floor_distance_shade(distance)
-        fog_amount = max(0.0, min(0.72, (distance - 2.0) / max(0.001, dungeona.MAX_RENDER_DEPTH - 2.0)))
-        color = self.shade_color(color, distance_factor)
-        return self.mix_colors(color, "#111316", fog_amount * 0.55)
+    def ensure_background_layer(self) -> None:
+        background_key = (self.view_width_cells, self.view_height_cells, self.cell_w, self.cell_h)
+        if self.static_cache.get("background_key") == background_key:
+            return
+        old_items = self.static_cache.get("background_items", [])
+        if isinstance(old_items, list):
+            self.clear_item_list(old_items)
+        items: List[int] = []
+        for y in range(self.view_height_cells):
+            color = self.floor_band_color(y)
+            x0, y0, x1, y1 = self.rect_from_cells(0, y, self.view_width_cells, 1)
+            items.append(self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color))
+        self.static_cache["background_key"] = background_key
+        self.static_cache["background_items"] = items
 
     def ensure_frame_layer(self) -> None:
         frame_key = (self.window_width, self.view_height, self.status_height)
@@ -314,10 +286,18 @@ class DungeonaRenderer:
         bg = self.ansi_color_to_hex(cell.bg, "me")
         if ch == " ":
             return bg
-        if ch in {"█", "▓", "▒", "░", "▄", "▀", "■"}:
+        if ch in {"█", "■"}:
             return fg
+        if ch in {"▀", "▄"}:
+            return self.blend_colors(bg, fg, 0.50)
+        if ch == "▓":
+            return self.blend_colors(bg, fg, 0.72)
+        if ch == "▒":
+            return self.blend_colors(bg, fg, 0.50)
+        if ch == "░":
+            return self.blend_colors(bg, fg, 0.28)
         if ch in {".", ",", "`", "_"}:
-            return self.shade_color(fg, 0.8)
+            return self.blend_colors(bg, fg, 0.20)
         return fg
 
     def distance_shade_factor(self, distance: float, side: int = 0) -> float:
@@ -333,6 +313,124 @@ class DungeonaRenderer:
         tx = min(texture.width - 1, max(0, int(x_ratio * max(1, texture.width - 1))))
         ty = min(texture.height - 1, max(0, int(y_ratio * max(1, texture.height - 1))))
         return texture.rows[ty][tx]
+
+    def sample_repeating_texture_cell(self, texture: Optional[AnsiTexture], x_ratio: float, y_ratio: float) -> Optional[AnsiCell]:
+        if texture is None or texture.width <= 0 or texture.height <= 0:
+            return None
+        wrapped_x = x_ratio % 1.0
+        wrapped_y = y_ratio % 1.0
+        tx = min(texture.width - 1, max(0, int(wrapped_x * texture.width)))
+        ty = min(texture.height - 1, max(0, int(wrapped_y * texture.height)))
+        return texture.rows[ty][tx]
+
+    def texture_identity(self, texture: Optional[AnsiTexture]) -> Optional[Tuple[object, ...]]:
+        if texture is None:
+            return None
+        return (
+            getattr(texture, "source_path", None),
+            texture.width,
+            texture.height,
+            id(texture),
+        )
+
+    def texture_fill_rows(self, texture: Optional[AnsiTexture]) -> Optional[Tuple[Tuple[Optional[str], ...], ...]]:
+        texture_id = self.texture_identity(texture)
+        if texture_id is None:
+            return None
+        cache = self.static_cache.setdefault("texture_fill_rows", {})
+        if not isinstance(cache, dict):
+            cache = {}
+            self.static_cache["texture_fill_rows"] = cache
+        cached_rows = cache.get(texture_id)
+        if isinstance(cached_rows, tuple):
+            return cached_rows
+        assert texture is not None
+        fill_rows = tuple(tuple(self.texture_cell_fill(cell) for cell in row) for row in texture.rows)
+        cache[texture_id] = fill_rows
+        return fill_rows
+
+    def sample_texture_fill(
+        self,
+        texture: Optional[AnsiTexture],
+        x_ratio: float,
+        y_ratio: float,
+        *,
+        repeat: bool = False,
+    ) -> Optional[str]:
+        fill_rows = self.texture_fill_rows(texture)
+        if fill_rows is None or texture is None or texture.width <= 0 or texture.height <= 0:
+            return None
+        if repeat:
+            x_ratio %= 1.0
+            y_ratio %= 1.0
+            tx = min(texture.width - 1, max(0, int(x_ratio * texture.width)))
+            ty = min(texture.height - 1, max(0, int(y_ratio * texture.height)))
+        else:
+            tx = min(texture.width - 1, max(0, int(x_ratio * max(1, texture.width - 1))))
+            ty = min(texture.height - 1, max(0, int(y_ratio * max(1, texture.height - 1))))
+        return fill_rows[ty][tx]
+
+    def surface_fill_rows(self) -> Tuple[Tuple[Optional[str], ...], ...]:
+        floor_texture = self.state.get("floor_texture")
+        ceiling_texture = self.state.get("ceiling_texture")
+        surface_key = (
+            self.view_width_cells,
+            self.view_height_cells,
+            self.texture_identity(floor_texture),
+            self.texture_identity(ceiling_texture),
+        )
+        if self.static_cache.get("surface_key") == surface_key:
+            cached_rows = self.static_cache.get("surface_rows")
+            if isinstance(cached_rows, tuple):
+                return cached_rows
+
+        horizon = self.view_height_cells // 2
+        rows: List[List[Optional[str]]] = [
+            [None for _ in range(self.view_width_cells)]
+            for _ in range(self.view_height_cells)
+        ]
+
+        if ceiling_texture is not None:
+            for y in range(1, horizon):
+                ceiling_depth = (horizon - y) / max(1, horizon)
+                shade = max(0.30, min(1.00, 0.48 + (1.0 - ceiling_depth) * 0.42))
+                row = rows[y]
+                for x in range(self.view_width_cells):
+                    ceiling_x_ratio = x / max(1, self.view_width_cells)
+                    fill = self.sample_texture_fill(
+                        ceiling_texture,
+                        ceiling_x_ratio * 2.0 + ceiling_depth * 0.35,
+                        ceiling_depth * 3.0,
+                        repeat=True,
+                    )
+                    if fill is not None:
+                        row[x] = self.shade_color(fill, shade)
+
+        for y in range(horizon + 1, self.view_height_cells - 2):
+            row = rows[y]
+            if floor_texture is not None:
+                floor_depth = (y - horizon) / max(1, self.view_height_cells - horizon - 1)
+                shade = max(0.28, min(1.08, 0.34 + floor_depth * 0.74))
+                for x in range(self.view_width_cells):
+                    floor_x_ratio = x / max(1, self.view_width_cells)
+                    fill = self.sample_texture_fill(
+                        floor_texture,
+                        floor_x_ratio * (1.2 + floor_depth * 2.8),
+                        floor_depth * 3.2,
+                        repeat=True,
+                    )
+                    if fill is not None:
+                        row[x] = self.shade_color(fill, shade)
+            else:
+                base_fill = self.char_fill(dungeona.floor_char(y, horizon, self.view_height_cells), 4)
+                if base_fill is not None:
+                    for x in range(self.view_width_cells):
+                        row[x] = base_fill
+
+        frozen_rows = tuple(tuple(row) for row in rows)
+        self.static_cache["surface_key"] = surface_key
+        self.static_cache["surface_rows"] = frozen_rows
+        return frozen_rows
 
     def char_fill(self, ch: str, color_id: int) -> Optional[str]:
         if ch == " ":
@@ -559,154 +657,113 @@ class DungeonaRenderer:
             add_eye(left + body_w // 3, top + max(1, body_h // 3), self.shade_color(palette["eye"], 0.9), palette["eye"])
             add_eye(left + body_w // 2 + 1, top + max(1, body_h // 3), self.shade_color(palette["eye"], 0.9), palette["eye"])
 
-    def blend_hex_colors(self, colors: List[str]) -> Optional[str]:
-        valid = [color for color in colors if color and isinstance(color, str) and color.startswith("#") and len(color) == 7]
-        if not valid:
-            return None
-        r = sum(int(color[1:3], 16) for color in valid) // len(valid)
-        g = sum(int(color[3:5], 16) for color in valid) // len(valid)
-        b = sum(int(color[5:7], 16) for color in valid) // len(valid)
-        return f"#{r:02x}{g:02x}{b:02x}"
-
-    def sample_wall_column_color(
-        self,
-        grid: List[List[str]],
-        cam_x: float,
-        cam_y: float,
-        dir_x: float,
-        dir_y: float,
-        plane_x: float,
-        plane_y: float,
-        screen_x: int,
-        screen_y: int,
-        wall_textures: Dict[str, AnsiTexture],
-    ) -> Optional[str]:
-        samples = max(1, int(self.view_antialias_samples))
-        colors: List[str] = []
-        for sample_index in range(samples):
-            sub_x = screen_x + (sample_index + 0.5) / samples
-            camera_x = 2.0 * sub_x / max(1, self.view_width_cells) - 1.0
-            ray_dir_x = dir_x + plane_x * camera_x
-            ray_dir_y = dir_y + plane_y * camera_x
-            distance, cell, side, wall_hit = dungeona.cast_perspective_ray(grid, cam_x, cam_y, ray_dir_x, ray_dir_y)
-            if cell == " ":
-                continue
-            line_height = int((self.view_height_cells * 0.92) / max(0.001, distance))
-            draw_start = max(1, (self.view_height_cells // 2) - line_height // 2)
-            draw_end = min(self.view_height_cells - 3, (self.view_height_cells // 2) + line_height // 2)
-            if not (draw_start <= screen_y <= draw_end):
-                continue
-            texture = wall_textures.get(cell)
-            fill: Optional[str] = None
-            if texture is not None:
-                y_ratio = (screen_y - draw_start) / max(1, draw_end - draw_start)
-                texture_cell = self.sample_texture_cell(texture, wall_hit, y_ratio)
-                if texture_cell is not None:
-                    fill = self.texture_cell_fill(texture_cell)
-            if fill is None:
-                char = dungeona.wall_char(distance, side, cell)
-                color_id = 2 if cell == "D" else 1
-                fill = self.char_fill(char, color_id)
-            if fill is not None:
-                colors.append(self.shade_color(fill, self.distance_shade_factor(distance, side)))
-        return self.blend_hex_colors(colors)
-
-    def compute_floor_rects(self) -> List[Tuple[int, int, str]]:
-        rects: List[Tuple[int, int, str]] = []
-        px = float(self.state["x"]) + 0.5
-        py = float(self.state["y"]) + 0.5
-        facing = int(self.state["facing"])
-        dir_x, dir_y = dungeona.facing_vector(facing)
-        plane_x, plane_y = -dir_y * dungeona.FOV_SCALE, dir_x * dungeona.FOV_SCALE
-        ray0_x = dir_x - plane_x
-        ray0_y = dir_y - plane_y
-        ray1_x = dir_x + plane_x
-        ray1_y = dir_y + plane_y
-        horizon = self.view_height_cells // 2
-
-        for y in range(self.view_height_cells):
-            if y <= horizon:
-                for x in range(self.view_width_cells):
-                    rects.append((x, y, self.procedural_ceiling_color(x, y)))
-                continue
-
-            row_distance = self.view_height_cells / max(0.001, 2.0 * (y - horizon))
-            step_x = row_distance * (ray1_x - ray0_x) / max(1, self.view_width_cells)
-            step_y = row_distance * (ray1_y - ray0_y) / max(1, self.view_width_cells)
-            floor_x = px + row_distance * ray0_x
-            floor_y = py + row_distance * ray0_y
-
-            for x in range(self.view_width_cells):
-                color = self.procedural_floor_world_color(floor_x, floor_y, row_distance)
-                rects.append((x, y, color))
-                floor_x += step_x
-                floor_y += step_y
-
-        return rects
-
-    def compute_scene_rects(self) -> List[Tuple[int, int, str]]:
+    def compute_scene_rects(self) -> List[Tuple[int, int, int, str]]:
         grid = dungeona.current_grid(self.state)
         px = int(self.state["x"])
         py = int(self.state["y"])
         facing = int(self.state["facing"])
-        items = dungeona.render_view(
-            grid,
-            px,
-            py,
-            facing,
-            self.view_width_cells,
-            self.view_height_cells,
-            self.state.get("wall_textures"),
-            self.state.get("floor_texture"),
-            self.state.get("ceiling_texture"),
-            self.state.get("animated_sprites"),
-            self.state.get("static_sprites"),
-            int(self.state.get("action_count", 0)),
-        )
-        textured_pixels: Dict[Tuple[int, int], str] = {}
         wall_textures = self.state.get("wall_textures") or {}
-        cam_x, cam_y = px + 0.5, py + 0.5
+        horizon = self.view_height_cells // 2
+        cam_x = px + 0.5
+        cam_y = py + 0.5
         dir_x, dir_y = dungeona.facing_vector(facing)
         plane_x, plane_y = -dir_y * dungeona.FOV_SCALE, dir_x * dungeona.FOV_SCALE
 
-        for y, x, ch, color_id in items:
-            if 0 <= x < self.view_width_cells and 0 <= y < self.view_height_cells and color_id in {1, 2}:
-                fill = self.sample_wall_column_color(
-                    grid,
-                    cam_x,
-                    cam_y,
-                    dir_x,
-                    dir_y,
-                    plane_x,
-                    plane_y,
-                    x,
-                    y,
-                    wall_textures,
-                )
-                if fill is not None:
-                    textured_pixels[(x, y)] = fill
+        fill_rows = [list(row) for row in self.surface_fill_rows()]
+        overlay_items: List[Tuple[int, int, str, int]] = []
 
-        rects = self.compute_floor_rects()
-        for y, x, ch, color_id in items:
-            if 0 <= x < self.view_width_cells and 0 <= y < self.view_height_cells:
-                fill = textured_pixels.get((x, y))
-                if fill is None:
-                    fill = self.char_fill(ch, color_id)
-                if fill is not None:
-                    rects.append((x, y, fill))
-        return rects
+        for x in range(self.view_width_cells):
+            camera_x = 2.0 * x / max(1, self.view_width_cells - 1) - 1.0
+            ray_dir_x = dir_x + plane_x * camera_x
+            ray_dir_y = dir_y + plane_y * camera_x
+            distance, cell, side, wall_hit = dungeona.cast_perspective_ray(grid, cam_x, cam_y, ray_dir_x, ray_dir_y)
+            if cell not in {"#", "D"}:
+                continue
+
+            line_height = int((self.view_height_cells * 0.92) / max(0.001, distance))
+            draw_start = max(1, horizon - line_height // 2)
+            draw_end = min(self.view_height_cells - 3, horizon + line_height // 2)
+            color_id = 2 if cell == "D" else 1
+            texture = wall_textures.get(cell)
+            shade = self.distance_shade_factor(distance, side)
+            mid = (draw_start + draw_end) // 2
+
+            for y in range(draw_start, draw_end + 1):
+                wall_fill: Optional[str]
+                if texture is not None:
+                    y_ratio = (y - draw_start) / max(1, draw_end - draw_start)
+                    base_fill = self.sample_texture_fill(texture, wall_hit, y_ratio)
+                    wall_fill = self.shade_color(base_fill, shade) if base_fill is not None else None
+                else:
+                    draw_char = dungeona.wall_char(distance, side, cell)
+                    if cell == "D":
+                        if abs(y - mid) <= max(1, line_height // 10):
+                            draw_char = "="
+                        elif x % 2 == 0:
+                            draw_char = "|"
+                    elif side == 1 and draw_char in {"█", "▓", "▒"}:
+                        draw_char = {"█": "▓", "▓": "▒", "▒": "░"}.get(draw_char, draw_char)
+                    wall_fill = self.char_fill(draw_char, color_id)
+                    if wall_fill is not None:
+                        wall_fill = self.shade_color(wall_fill, shade)
+                if wall_fill is not None:
+                    fill_rows[y][x] = wall_fill
+
+            ceiling_limit = max(1, draw_start - 1)
+            if ceiling_limit > 1 and x % 3 == 0:
+                edge_fill = self.char_fill("_", 4)
+                if edge_fill is not None:
+                    fill_rows[ceiling_limit][x] = edge_fill
+
+        visible_stairs = dungeona.stairs_in_view(grid, px, py, facing)
+        if visible_stairs is not None:
+            distance, side, _, tile = visible_stairs
+            dungeona.render_stairs_sprite(overlay_items, self.view_width_cells, self.view_height_cells, distance, side, tile)
+
+        visible_grail = dungeona.grail_in_view(grid, px, py, facing)
+        if visible_grail is not None:
+            distance, side, _ = visible_grail
+            dungeona.render_grail_sprite(overlay_items, self.view_width_cells, self.view_height_cells, distance, side)
+
+        visible_altar = dungeona.altar_in_view(grid, px, py, facing)
+        if visible_altar is not None:
+            distance, side, _ = visible_altar
+            dungeona.render_altar_sprite(overlay_items, self.view_width_cells, self.view_height_cells, distance, side)
+
+        seen_monster = dungeona.visible_monster(grid, px, py, facing)
+        if seen_monster is not None:
+            distance, side, _, tile = seen_monster
+            dungeona.render_monster_sprite(
+                overlay_items,
+                self.view_width_cells,
+                self.view_height_cells,
+                distance,
+                side,
+                tile,
+                self.state.get("animated_sprites"),
+                int(self.state.get("action_count", 0)),
+            )
+
+        for y, x, ch, color_id in overlay_items:
+            if not (0 <= x < self.view_width_cells and 0 <= y < self.view_height_cells):
+                continue
+            fill = self.char_fill(ch, color_id)
+            if fill is not None:
+                fill_rows[y][x] = fill
+
+        return self.fill_rows_to_runs(fill_rows)
 
     def draw_view(self, force_scene: bool = False) -> None:
         render_key = self.scene_render_key()
         if force_scene or self.static_cache.get("last_render_key") != render_key:
-            rects = self.compute_scene_rects()
+            runs = self.compute_scene_rects()
             self.static_cache["last_render_key"] = render_key
-            self.static_cache["last_render_items"] = rects
+            self.static_cache["last_render_items"] = runs
         else:
-            rects = self.static_cache.get("last_render_items", [])
+            runs = self.static_cache.get("last_render_items", [])
         self.clear_item_list(self.dynamic_scene_items)
-        if isinstance(rects, list):
-            self.create_batched_rectangles(rects, self.dynamic_scene_items)
+        if isinstance(runs, list):
+            self.create_batched_rectangles(runs, self.dynamic_scene_items)
 
     def draw_minimap(self) -> None:
         if not bool(self.state.get("show_map")):
@@ -863,6 +920,7 @@ class DungeonaRenderer:
         self.draw_scene(force_scene=acted)
 
     def draw_scene(self, force_scene: bool = False) -> None:
+        self.ensure_background_layer()
         self.ensure_frame_layer()
         self.draw_view(force_scene=force_scene)
         self.draw_monster_detail_art()
@@ -898,7 +956,6 @@ class DungeonaRenderer:
         if new_metrics == prev_metrics:
             return
         self.canvas.config(width=self.window_width, height=self.window_height)
-        self.static_cache["last_render_key"] = None
         self.draw_scene(force_scene=True)
 
 

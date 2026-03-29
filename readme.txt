@@ -3,42 +3,45 @@ DUNGEONA
 
 Version
 -------
-Updated README for the project archive: 20260328_dungeona_015.zip
+Updated README for project archive: 20260329_dungeona-main_doc.zip
 
 Overview
 --------
 Dungeona is a retro-style first-person dungeon crawler written in Python.
-This archive includes:
+This build includes:
 - a terminal game built with curses
-- a Tkinter-based GUI frontend
-- a terminal dungeon editor
+- two Tkinter windowed front ends
+- a terminal dungeon editor with validation tools
 - SQLite-backed multi-floor dungeon storage
-- ANSI/ANS texture support for walls, doors, and animated rat art
+- ANSI/ANS texture support for walls, doors, floor, ceiling, and rat animation
 
 In the default adventure, your goal is to find the Holy Grail and deliver it
 to the altar on the final floor.
 
-What's updated in this build
-----------------------------
-This archive includes everything from the recent textured builds, plus:
-- dungeona_gui.py, a windowed Tkinter frontend for the game
-- animated rat texture frames in textures/rat001.ans through rat003.ans
-- monster spotting and short chase behavior
-- a multi-floor map editor and dungeon validator
+What's new in this documented build
+-----------------------------------
+Compared with the previous README build, this archive now clearly includes:
+- dungeona_ren.py, an additional Tkinter renderer/windowed frontend
+- floor.ans and ceiling.ans texture assets alongside wall and door textures
+- animated rat sprite frames in textures/rat001.ans through rat003.ans
+- the same multi-floor editor, quest flow, and monster chase behavior
 
 Included files
 --------------
 dungeona.py
-    Main terminal game.
+    Main terminal game and core gameplay logic.
 
 dungeona_gui.py
-    Tkinter GUI frontend for the same dungeon and game logic.
+    Tkinter GUI frontend with textured scene rendering and status display.
+
+dungeona_ren.py
+    Alternate Tkinter renderer/windowed frontend with auto-scaling display.
 
 dungeon_editor.py
     Terminal map editor and dungeon validator.
 
 ans.py
-    ANSI/ANS parser and optional texture viewer utility.
+    ANSI/ANS parser and optional terminal viewer utility.
 
 dungeon_map.db
     SQLite dungeon data file used by the game and editor.
@@ -47,6 +50,8 @@ textures/
     ANSI art assets used by the renderer:
     - wall.ans
     - door.ans
+    - floor.ans
+    - ceiling.ans
     - rat001.ans
     - rat002.ans
     - rat003.ans
@@ -60,9 +65,9 @@ readme.txt
 Features
 --------
 - terminal-based first-person dungeon exploration
-- optional Tkinter GUI frontend
+- two optional Tkinter windowed front ends
 - pseudo-3D corridor rendering
-- ANSI/ANS wall and door textures
+- ANSI/ANS wall, door, floor, and ceiling textures
 - animated rat artwork when rat texture frames are available
 - three connected dungeon floors in the default adventure
 - Holy Grail quest objective with altar delivery
@@ -73,13 +78,13 @@ Features
 - toggleable minimap with facing direction
 - energy-based combat and waiting system
 - SQLite-backed map storage
-- full-screen terminal dungeon editor with validation tools
+- full-screen terminal dungeon editor with whole-dungeon validation
 
 Requirements
 ------------
 - Python 3.10 or newer recommended
 - a terminal with curses support for the terminal game/editor
-- Tkinter support for the GUI frontend
+- Tkinter support for the windowed front ends
 - no third-party packages required on Linux or macOS
 
 Windows users may need:
@@ -92,9 +97,13 @@ Run the terminal game:
 
     python dungeona.py
 
-Run the GUI frontend:
+Run the main Tkinter GUI frontend:
 
     python dungeona_gui.py
+
+Run the alternate Tkinter renderer frontend:
+
+    python dungeona_ren.py
 
 Run the dungeon editor:
 
@@ -146,14 +155,16 @@ Actions:
 - M                 Toggle minimap
 - >                 Use stairs down
 - <                 Use stairs up
-- X                 Quit the game
+- X                 Quit the game or windowed frontend
 
-GUI notes
----------
-- The GUI frontend uses the same dungeon data and core game logic as the
-  terminal version.
-- It opens in a window using Tkinter rather than curses.
-- If Tkinter is missing from your Python install, the GUI may not launch.
+Frontend notes
+--------------
+- dungeona.py is the curses terminal version.
+- dungeona_gui.py is a textured Tkinter windowed version.
+- dungeona_ren.py is an alternate Tkinter renderer that scales with window size.
+- All front ends use the same dungeon data and core game logic.
+- If Tkinter is missing from your Python installation, the windowed front ends
+  may not launch.
 
 Gameplay rules
 --------------
@@ -278,3 +289,4 @@ Copyright (c) 2026 mtatton
 Donation
 --------
 PayPal: https://paypal.me/michtatton
+

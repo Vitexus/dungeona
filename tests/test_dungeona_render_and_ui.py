@@ -13,6 +13,9 @@ def test_setup_colors_and_texture_loading_helpers(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(dungeona.curses, "start_color", lambda: init_calls.append(("start",)))
     monkeypatch.setattr(dungeona.curses, "use_default_colors", lambda: init_calls.append(("default",)))
     monkeypatch.setattr(dungeona.curses, "init_pair", lambda pair, fg, bg: init_calls.append((pair, fg, bg)))
+    monkeypatch.setattr(dungeona.curses, "COLORS", 256, raising=False)
+    monkeypatch.setattr(dungeona.curses, "COLOR_WHITE", 15, raising=False)
+    monkeypatch.setattr(dungeona.curses, "COLOR_BLACK", 0, raising=False)
 
     dungeona.setup_colors()
     assert init_calls[0] == ("start",)

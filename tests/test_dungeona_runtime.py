@@ -56,7 +56,7 @@ def test_run_processes_key_actions_and_main_invokes_wrapper(monkeypatch):
     monkeypatch.setattr(dungeona, "load_wall_textures", lambda: {"#": "wall"})
     monkeypatch.setattr(dungeona, "load_surface_texture", lambda _name: None)
     monkeypatch.setattr(dungeona, "load_animated_sprites", lambda: {"rat": [["rr"]]})
-    monkeypatch.setattr(dungeona, "setup_colors", lambda: None)
+    monkeypatch.setattr(dungeona, "setup_colors", lambda _mode=dungeona.COLOR_MODE_256: None)
     monkeypatch.setattr(dungeona, "collect_tile", lambda state, grid: None)
     monkeypatch.setattr(dungeona, "advance_world", lambda state: None)
     monkeypatch.setattr(dungeona.curses, "curs_set", lambda _value: None)
@@ -101,6 +101,7 @@ def test_run_processes_key_actions_and_main_invokes_wrapper(monkeypatch):
     assert frames[-1]["action_count"] == 9
 
     wrapper_calls = []
+    monkeypatch.setattr(dungeona, "parse_args", lambda: type("Args", (), {"color_mode": dungeona.COLOR_MODE_256})())
     monkeypatch.setattr(dungeona, "initialize_map_db", lambda path: wrapper_calls.append(("init", path)))
     monkeypatch.setattr(dungeona.curses, "wrapper", lambda fn: wrapper_calls.append(("wrapper", fn)) or 42)
     assert dungeona.main() == 42

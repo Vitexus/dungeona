@@ -1,3 +1,4 @@
+import argparse
 import curses
 import sqlite3
 from pathlib import Path
@@ -38,6 +39,9 @@ ENEMY_COLOR = 196
 GRAIL_COLOR = 226
 STAIR_COLOR = 159
 QUEST_COLOR = 93
+COLOR_MODE_256 = "256"
+COLOR_MODE_GRAY16 = "16"
+
 MAX_RENDER_DEPTH = 12.0
 FOV_SCALE = 0.85
 START_ENERGY = 12
@@ -229,19 +233,75 @@ def clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
-def setup_colors() -> None:
+def _safe_init_pair(pair_number: int, foreground: int, background: int = -1) -> None:
+    fallback_fg = foreground
+    if foreground >= curses.COLORS:
+        fallback_fg = curses.COLOR_WHITE if foreground > 0 else curses.COLOR_BLACK
+    try:
+        curses.init_pair(pair_number, fallback_fg, background)
+    except curses.error:
+        curses.init_pair(pair_number, curses.COLOR_WHITE, background)
+
+
+def _setup_256_colors() -> None:
+    _safe_init_pair(1, WALL_COLOR, -1)
+    _safe_init_pair(2, DOOR_COLOR, -1)
+    _safe_init_pair(3, ACCENT_COLOR, -1)
+    _safe_init_pair(4, FLOOR_COLOR, -1)
+    _safe_init_pair(5, MAP_WALL_COLOR, -1)
+    _safe_init_pair(6, PLAYER_COLOR, -1)
+    _safe_init_pair(7, ENEMY_COLOR, -1)
+    _safe_init_pair(8, GRAIL_COLOR, -1)
+    _safe_init_pair(9, STAIR_COLOR, -1)
+    _safe_init_pair(10, QUEST_COLOR, -1)
+
+
+def _setup_gray16_colors() -> None:
+    if curses.COLORS >= 16 and curses.can_change_color():
+        grayscale_steps = (0, 143, 286, 429, 571, 714, 857, 1000)
+        for index, value in enumerate(grayscale_steps, start=8):
+            try:
+                curses.init_color(index, value, value, value)
+            except curses.error:
+                break
+        pair_map = {
+            1: 10,
+            2: 12,
+            3: 15,
+            4: 9,
+            5: 11,
+            6: 15,
+            7: 13,
+            8: 14,
+            9: 12,
+            10: 13,
+        }
+    else:
+        bright_black = 8 if curses.COLORS >= 16 else curses.COLOR_BLACK
+        bright_white = 15 if curses.COLORS >= 16 else curses.COLOR_WHITE
+        pair_map = {
+            1: bright_black,
+            2: curses.COLOR_WHITE,
+            3: bright_white,
+            4: bright_black,
+            5: curses.COLOR_WHITE,
+            6: bright_white,
+            7: curses.COLOR_WHITE,
+            8: bright_white,
+            9: curses.COLOR_WHITE,
+            10: curses.COLOR_WHITE,
+        }
+    for pair_number, foreground in pair_map.items():
+        _safe_init_pair(pair_number, foreground, -1)
+
+
+def setup_colors(color_mode: str = COLOR_MODE_256) -> None:
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(1, WALL_COLOR, -1)
-    curses.init_pair(2, DOOR_COLOR, -1)
-    curses.init_pair(3, ACCENT_COLOR, -1)
-    curses.init_pair(4, FLOOR_COLOR, -1)
-    curses.init_pair(5, MAP_WALL_COLOR, -1)
-    curses.init_pair(6, PLAYER_COLOR, -1)
-    curses.init_pair(7, ENEMY_COLOR, -1)
-    curses.init_pair(8, GRAIL_COLOR, -1)
-    curses.init_pair(9, STAIR_COLOR, -1)
-    curses.init_pair(10, QUEST_COLOR, -1)
+    if color_mode == COLOR_MODE_GRAY16:
+        _setup_gray16_colors()
+    else:
+        _setup_256_colors()
 
 
 def load_wall_textures() -> Dict[str, AnsiTexture]:
@@ -1127,11 +1187,11 @@ def find_start_position(floors: List[Grid]) -> Tuple[int, int, int]:
     return 0, 1, 1
 
 
-def run(stdscr) -> int:
+def run(stdscr, color_mode: str = COLOR_MODE_256) -> int:
     curses.curs_set(0)
     stdscr.nodelay(False)
     stdscr.keypad(True)
-    setup_colors()
+    setup_colors(color_mode)
 
     floors = load_floors()
     start_floor, start_x, start_y = find_start_position(floors)
@@ -1228,9 +1288,21 @@ def run(stdscr) -> int:
     return 0
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Play Dungeona in curses.")
+    parser.add_argument(
+        "--color-mode",
+        choices=(COLOR_MODE_256, COLOR_MODE_GRAY16),
+        default=COLOR_MODE_256,
+        help="Use the original 256-color palette or a 16-color grayscale palette.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
     initialize_map_db(DB_PATH)
-    return curses.wrapper(run)
+    return curses.wrapper(lambda stdscr: run(stdscr, args.color_mode))
 
 
 if __name__ == "__main__":

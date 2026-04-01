@@ -1,23 +1,9 @@
-#!/usr/bin/env python3
-import os
 import curses
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-def _get_user_db_path() -> Path:
-    xdg = os.environ.get('XDG_DATA_HOME')
-    if xdg:
-        data_dir = Path(xdg)
-    else:
-        data_dir = Path.home() / '.local' / 'share'
-    d = data_dir / 'dungeona'
-    d.mkdir(parents=True, exist_ok=True)
-    return d / 'dungeon_map.db'
-
-# Use per-user data directory for the map DB so system-wide installs
-# do not attempt to write under /usr/lib
-DB_PATH = _get_user_db_path()
+DB_PATH = Path(__file__).with_name("dungeon_map.db")
 DEFAULT_FLOORS = [
     [
         "####################",
@@ -134,7 +120,6 @@ def initialize_map_db(db_path: Path) -> None:
 
 
 def load_floors(db_path: Path = DB_PATH) -> List[List[List[str]]]:
-    initialize_map_db(db_path)
     with sqlite3.connect(db_path) as conn:
         has_floor_table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='floor_map_rows'"
@@ -161,6 +146,16 @@ def load_floors(db_path: Path = DB_PATH) -> List[List[List[str]]]:
                     floors.append(normalize_floor_rows(DEFAULT_FLOORS[len(floors)]))
                 return floors
 
+    initialize_map_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT floor_index, row_index, row_text FROM floor_map_rows ORDER BY floor_index, row_index"
+        ).fetchall()
+    grouped: Dict[int, List[str]] = {}
+    for floor_index, _row_index, row_text in rows:
+        grouped.setdefault(int(floor_index), []).append(row_text)
+    if grouped:
+        return [normalize_floor_rows(grouped[index]) for index in sorted(grouped)]
     return [normalize_floor_rows(rows) for rows in DEFAULT_FLOORS]
 
 

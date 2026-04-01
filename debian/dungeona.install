@@ -5,6 +5,6 @@ debian/usrbin/dungeona usr/bin/
 debian/usrbin/dungeona-editor usr/bin/
 dungeona.svg usr/share/icons/hicolor/128x128/apps/
 debian/dungeona.appdata.xml usr/share/metainfo/
-textures/*.ans	  usr/lib/dungeona/textures/
+textures/*.ans usr/lib/dungeona/textures/
 
 

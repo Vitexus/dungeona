@@ -1,0 +1,4 @@
+dungeona_gui.py usr/lib/dungeona/
+dungeona_ren.py usr/lib/dungeona/
+debian/usrbin/dungeona-gui usr/bin/
+debian/usrbin/dungeona-ren usr/bin/

@@ -1,10 +1,14 @@
 ans.py usr/lib/dungeona/
 dungeona.py usr/lib/dungeona/
+dungeona_gui.py usr/lib/dungeona/
+dungeona_ren.py usr/lib/dungeona/
 dungeon_editor.py usr/lib/dungeona/
 debian/usrbin/dungeona usr/bin/
 debian/usrbin/dungeona-editor usr/bin/
+debian/usrbin/dungeona-gui usr/bin/
+debian/usrbin/dungeona-ren usr/bin/
 dungeona.svg usr/share/icons/hicolor/128x128/apps/
 debian/dungeona.appdata.xml usr/share/metainfo/
-textures/*.ans	  usr/lib/dungeona/textures/
+textures/*.ans usr/lib/dungeona/textures/
 
 

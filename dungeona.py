@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+import argparse
 import curses
 import os
 import sqlite3
@@ -6,24 +6,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ans import AnsiTexture, load_ans_texture
-import evdev
-
-WALL_TEXTURE_FILES = {"#": "wall.ans", "D": "door.ans"}
-TEXTURE_DIR = Path("/usr/lib/dungeona/textures")
-
-def get_gamepad():
-    for path in evdev.list_devices():
-        dev = evdev.InputDevice(path)
-        if dev.info.vendor == 0x054c and dev.info.product == 0x0ce6:
-            return dev
-    return None
 
 Vec2 = Tuple[int, int]
 DrawItem = Tuple[int, int, str, int]
 FloorMap = List[str]
 Grid = List[List[str]]
 
+
 def _get_user_db_path() -> Path:
+    """Return a per-user writable path for the dungeon database."""
     xdg = os.environ.get('XDG_DATA_HOME')
     if xdg:
         data_dir = Path(xdg)
@@ -33,9 +24,18 @@ def _get_user_db_path() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d / 'dungeon_map.db'
 
-# Use per-user data directory for the map DB so system-wide installs
-# do not attempt to write under /usr/lib
 DB_PATH = _get_user_db_path()
+
+_SYSTEM_TEXTURE_DIR = Path("/usr/lib/dungeona/textures")
+_LOCAL_TEXTURE_DIR = Path(__file__).with_name("textures")
+TEXTURE_DIR = _SYSTEM_TEXTURE_DIR if _SYSTEM_TEXTURE_DIR.exists() else _LOCAL_TEXTURE_DIR
+WALL_TEXTURE_FILES = {
+    "#": "wall.ans",
+    "D": "door.ans",
+}
+FLOOR_TEXTURE_FILE = "floor.ans"
+CEILING_TEXTURE_FILE = "ceiling.ans"
+RAT_ANIMATION_FILES = ["rat001.ans", "rat002.ans", "rat003.ans"]
 
 DIRECTIONS: List[Vec2] = [
     (0, -1),
@@ -55,6 +55,9 @@ ENEMY_COLOR = 196
 GRAIL_COLOR = 226
 STAIR_COLOR = 159
 QUEST_COLOR = 93
+COLOR_MODE_256 = "256"
+COLOR_MODE_GRAY16 = "16"
+
 MAX_RENDER_DEPTH = 12.0
 FOV_SCALE = 0.85
 START_ENERGY = 12
@@ -87,6 +90,7 @@ MONSTER_TYPES: Dict[str, Dict[str, object]] = {
             "(o.o )",
             " /|\\~",
         ],
+        "animated_sprite_key": "rat",
         "defeat": "You skewer the giant rat.",
     },
     "S": {
@@ -116,6 +120,7 @@ MONSTER_TYPES: Dict[str, Dict[str, object]] = {
 }
 MONSTER_TILES = set(MONSTER_TYPES)
 LEGACY_MONSTER_TILE = "M"
+MONSTER_CHASE_TURNS = 3
 
 DEFAULT_FLOORS: List[FloorMap] = [
     [
@@ -244,19 +249,75 @@ def clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
-def setup_colors() -> None:
+def _safe_init_pair(pair_number: int, foreground: int, background: int = -1) -> None:
+    fallback_fg = foreground
+    if foreground >= curses.COLORS:
+        fallback_fg = curses.COLOR_WHITE if foreground > 0 else curses.COLOR_BLACK
+    try:
+        curses.init_pair(pair_number, fallback_fg, background)
+    except curses.error:
+        curses.init_pair(pair_number, curses.COLOR_WHITE, background)
+
+
+def _setup_256_colors() -> None:
+    _safe_init_pair(1, WALL_COLOR, -1)
+    _safe_init_pair(2, DOOR_COLOR, -1)
+    _safe_init_pair(3, ACCENT_COLOR, -1)
+    _safe_init_pair(4, FLOOR_COLOR, -1)
+    _safe_init_pair(5, MAP_WALL_COLOR, -1)
+    _safe_init_pair(6, PLAYER_COLOR, -1)
+    _safe_init_pair(7, ENEMY_COLOR, -1)
+    _safe_init_pair(8, GRAIL_COLOR, -1)
+    _safe_init_pair(9, STAIR_COLOR, -1)
+    _safe_init_pair(10, QUEST_COLOR, -1)
+
+
+def _setup_gray16_colors() -> None:
+    if curses.COLORS >= 16 and curses.can_change_color():
+        grayscale_steps = (0, 143, 286, 429, 571, 714, 857, 1000)
+        for index, value in enumerate(grayscale_steps, start=8):
+            try:
+                curses.init_color(index, value, value, value)
+            except curses.error:
+                break
+        pair_map = {
+            1: 10,
+            2: 12,
+            3: 15,
+            4: 9,
+            5: 11,
+            6: 15,
+            7: 13,
+            8: 14,
+            9: 12,
+            10: 13,
+        }
+    else:
+        bright_black = 8 if curses.COLORS >= 16 else curses.COLOR_BLACK
+        bright_white = 15 if curses.COLORS >= 16 else curses.COLOR_WHITE
+        pair_map = {
+            1: bright_black,
+            2: curses.COLOR_WHITE,
+            3: bright_white,
+            4: bright_black,
+            5: curses.COLOR_WHITE,
+            6: bright_white,
+            7: curses.COLOR_WHITE,
+            8: bright_white,
+            9: curses.COLOR_WHITE,
+            10: curses.COLOR_WHITE,
+        }
+    for pair_number, foreground in pair_map.items():
+        _safe_init_pair(pair_number, foreground, -1)
+
+
+def setup_colors(color_mode: str = COLOR_MODE_256) -> None:
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(1, WALL_COLOR, -1)
-    curses.init_pair(2, DOOR_COLOR, -1)
-    curses.init_pair(3, ACCENT_COLOR, -1)
-    curses.init_pair(4, FLOOR_COLOR, -1)
-    curses.init_pair(5, MAP_WALL_COLOR, -1)
-    curses.init_pair(6, PLAYER_COLOR, -1)
-    curses.init_pair(7, ENEMY_COLOR, -1)
-    curses.init_pair(8, GRAIL_COLOR, -1)
-    curses.init_pair(9, STAIR_COLOR, -1)
-    curses.init_pair(10, QUEST_COLOR, -1)
+    if color_mode == COLOR_MODE_GRAY16:
+        _setup_gray16_colors()
+    else:
+        _setup_256_colors()
 
 
 def load_wall_textures() -> Dict[str, AnsiTexture]:
@@ -271,11 +332,55 @@ def load_wall_textures() -> Dict[str, AnsiTexture]:
     return textures
 
 
+def load_surface_texture(filename: str) -> Optional[AnsiTexture]:
+    path = TEXTURE_DIR / filename
+    if not path.exists():
+        return None
+    try:
+        return load_ans_texture(path)
+    except Exception:
+        return None
+
+
+def texture_to_sprite_lines(texture: AnsiTexture) -> List[str]:
+    lines = [line.rstrip() for line in texture.to_plain_lines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines or ["?"]
+
+
+def load_animated_sprites() -> Dict[str, List[List[str]]]:
+    animations: Dict[str, List[List[str]]] = {}
+    frames: List[List[str]] = []
+    for filename in RAT_ANIMATION_FILES:
+        path = TEXTURE_DIR / filename
+        if not path.exists():
+            continue
+        try:
+            frames.append(texture_to_sprite_lines(load_ans_texture(path)))
+        except Exception:
+            continue
+    if frames:
+        animations["rat"] = frames
+    return animations
+
+
 def texture_char_for_column(texture: Optional[AnsiTexture], x_ratio: float, y_ratio: float, fallback: str) -> str:
     if texture is None or texture.width <= 0 or texture.height <= 0:
         return fallback
     tx = min(texture.width - 1, max(0, int(x_ratio * max(1, texture.width - 1))))
     ty = min(texture.height - 1, max(0, int(y_ratio * max(1, texture.height - 1))))
+    sampled = texture.sample_char(tx, ty, fallback)
+    return sampled if sampled.strip() else fallback
+
+
+def repeating_texture_char(texture: Optional[AnsiTexture], x_ratio: float, y_ratio: float, fallback: str) -> str:
+    if texture is None or texture.width <= 0 or texture.height <= 0:
+        return fallback
+    wrapped_x = x_ratio % 1.0
+    wrapped_y = y_ratio % 1.0
+    tx = min(texture.width - 1, max(0, int(wrapped_x * texture.width)))
+    ty = min(texture.height - 1, max(0, int(wrapped_y * texture.height)))
     sampled = texture.sample_char(tx, ty, fallback)
     return sampled if sampled.strip() else fallback
 
@@ -308,6 +413,10 @@ def monster_info(tile: str) -> Dict[str, object]:
 
 def is_passable(cell: str) -> bool:
     return cell in {".", " ", QUEST_ITEM_TILE, "<", ">", QUEST_TARGET_TILE} or is_monster(cell)
+
+
+def is_walkable_for_monster(cell: str) -> bool:
+    return cell in {".", " ", QUEST_ITEM_TILE, "<", ">", QUEST_TARGET_TILE}
 
 
 def facing_vector(facing: int) -> Tuple[float, float]:
@@ -462,13 +571,27 @@ def stairs_in_view(grid: Grid, px: int, py: int, facing: int) -> Optional[Tuple[
     return None
 
 
-def render_monster_sprite(items: List[DrawItem], width: int, height: int, distance: int, side: int, monster_tile: str) -> None:
+def render_monster_sprite(
+    items: List[DrawItem],
+    width: int,
+    height: int,
+    distance: int,
+    side: int,
+    monster_tile: str,
+    animated_sprites: Optional[Dict[str, List[List[str]]]] = None,
+    animation_step: int = 0,
+) -> None:
     info = monster_info(monster_tile)
     perspective_scale = max(0.55, 2.4 / (distance + 0.35))
     perspective_scale *= 1.15 if side == 0 else 0.72
     center_x = width // 2 + side * max(3, width // max(8, 9 + distance * 2))
     floor_y = height - 4
     sprite = info["sprite"]  # type: ignore[assignment]
+    animation_key = info.get("animated_sprite_key")
+    if isinstance(animation_key, str) and animated_sprites and animation_key in animated_sprites:
+        frames = animated_sprites[animation_key]
+        if frames:
+            sprite = frames[animation_step % len(frames)]
     color = int(info["color"])
     sprite_height = max(2, int(round(len(sprite) * perspective_scale)))
     sprite_width = max(3, int(round(len(sprite[0]) * perspective_scale * (0.95 if side == 0 else 0.85))))
@@ -571,17 +694,50 @@ def render_stairs_sprite(items: List[DrawItem], width: int, height: int, distanc
                 items.append((sy, start_x + target_col, ch, 9))
 
 
-def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: int, wall_textures: Optional[Dict[str, AnsiTexture]] = None) -> List[DrawItem]:
+def render_view(
+    grid: Grid,
+    px: int,
+    py: int,
+    facing: int,
+    width: int,
+    height: int,
+    wall_textures: Optional[Dict[str, AnsiTexture]] = None,
+    floor_texture: Optional[AnsiTexture] = None,
+    ceiling_texture: Optional[AnsiTexture] = None,
+    animated_sprites: Optional[Dict[str, List[List[str]]]] = None,
+    animation_step: int = 0,
+) -> List[DrawItem]:
     items: List[DrawItem] = []
     horizon = height // 2
     cam_x, cam_y = px + 0.5, py + 0.5
     dir_x, dir_y = facing_vector(facing)
     plane_x, plane_y = -dir_y * FOV_SCALE, dir_x * FOV_SCALE
 
-    for y in range(horizon, height - 2):
-        char = floor_char(y, horizon, height)
-        for x in range(width):
-            items.append((y, x, char, 4))
+    for y in range(1, height - 2):
+        if y < horizon:
+            ceiling_depth = (horizon - y) / max(1, horizon)
+            for x in range(width):
+                ceiling_x_ratio = x / max(1, width)
+                ceiling_y_ratio = ceiling_depth * 3.0
+                char = repeating_texture_char(
+                    ceiling_texture,
+                    ceiling_x_ratio * 2.0 + ceiling_depth * 0.35,
+                    ceiling_y_ratio,
+                    " ",
+                )
+                items.append((y, x, char, 4))
+        elif y > horizon:
+            floor_depth = (y - horizon) / max(1, height - horizon - 1)
+            base_char = floor_char(y, horizon, height)
+            for x in range(width):
+                floor_x_ratio = x / max(1, width)
+                char = repeating_texture_char(
+                    floor_texture,
+                    floor_x_ratio * (1.2 + floor_depth * 2.8),
+                    floor_depth * 3.2,
+                    base_char,
+                )
+                items.append((y, x, char, 4))
 
     for x in range(width):
         camera_x = 2.0 * x / max(1, width - 1) - 1.0
@@ -635,7 +791,7 @@ def render_view(grid: Grid, px: int, py: int, facing: int, width: int, height: i
     seen_monster = visible_monster(grid, px, py, facing)
     if seen_monster is not None:
         distance, side, _, tile = seen_monster
-        render_monster_sprite(items, width, height, distance, side, tile)
+        render_monster_sprite(items, width, height, distance, side, tile, animated_sprites, animation_step)
 
     return items
 
@@ -735,7 +891,7 @@ def collect_tile(state: Dict[str, object], grid: Grid) -> None:
         deliver_quest_if_possible(state, grid)
 
 
-def try_move(state: Dict[str, object], step: int) -> None:
+def try_move(state: Dict[str, object], step: int) -> bool:
     grid = current_grid(state)
     dx, dy = DIRECTIONS[int(state["facing"])]
     nx = int(state["x"]) + dx * step
@@ -744,9 +900,11 @@ def try_move(state: Dict[str, object], step: int) -> None:
         state["x"] = nx
         state["y"] = ny
         collect_tile(state, grid)
+        return True
+    return False
 
 
-def try_strafe(state: Dict[str, object], step: int) -> None:
+def try_strafe(state: Dict[str, object], step: int) -> bool:
     grid = current_grid(state)
     facing = int(state["facing"])
     side = (facing + step) % 4
@@ -864,7 +1022,111 @@ def draw_banner_overlay(stdscr, lines: List[str], color: int) -> None:
                 pass
 
 
-def draw_scene(stdscr, state: Dict[str, object], has_joy: bool = False) -> None:
+def monster_has_line_of_sight(grid: Grid, mx: int, my: int, px: int, py: int, max_distance: int = 6) -> bool:
+    dx = px - mx
+    dy = py - my
+    if dx == 0 and dy == 0:
+        return True
+    if dx != 0 and dy != 0:
+        return False
+    distance = abs(dx) + abs(dy)
+    if distance > max_distance:
+        return False
+    step_x = 0 if dx == 0 else (1 if dx > 0 else -1)
+    step_y = 0 if dy == 0 else (1 if dy > 0 else -1)
+    x = mx + step_x
+    y = my + step_y
+    while (x, y) != (px, py):
+        if cell_at(grid, x, y) in {"#", "D"}:
+            return False
+        x += step_x
+        y += step_y
+    return True
+
+
+def iter_monsters(grid: Grid) -> List[Tuple[int, int, str]]:
+    monsters: List[Tuple[int, int, str]] = []
+    for y, row in enumerate(grid):
+        for x, cell in enumerate(row):
+            if is_monster(cell):
+                monsters.append((x, y, cell if cell in MONSTER_TILES else "R"))
+    return monsters
+
+
+def move_monsters(state: Dict[str, object]) -> None:
+    grid = current_grid(state)
+    px = int(state["x"])
+    py = int(state["y"])
+    chase_map = state.setdefault("monster_chase", {})
+    floor_key = str(int(state["floor"]))
+    floor_chase = chase_map.setdefault(floor_key, {})
+    seen_names: List[str] = []
+
+    for mx, my, tile in iter_monsters(grid):
+        monster_key = f"{mx},{my}"
+        if monster_has_line_of_sight(grid, mx, my, px, py):
+            floor_chase[monster_key] = MONSTER_CHASE_TURNS
+            seen_names.append(str(monster_info(tile)["name"]))
+
+    updated_chase: Dict[str, int] = {}
+    occupied = {(x, y) for x, y, _tile in iter_monsters(grid)}
+
+    for mx, my, tile in iter_monsters(grid):
+        old_key = f"{mx},{my}"
+        chase_turns = int(floor_chase.get(old_key, 0))
+        if chase_turns <= 0:
+            continue
+
+        moved = False
+        options: List[Tuple[int, int, int, int]] = []
+        for dx, dy in DIRECTIONS:
+            nx = mx + dx
+            ny = my + dy
+            if (nx, ny) == (px, py):
+                continue
+            if not is_walkable_for_monster(cell_at(grid, nx, ny)):
+                continue
+            if (nx, ny) in occupied:
+                continue
+            distance = abs(px - nx) + abs(py - ny)
+            options.append((distance, nx, ny, chase_turns))
+
+        if options:
+            options.sort(key=lambda item: item[0])
+            _distance, nx, ny, _ = options[0]
+            current_distance = abs(px - mx) + abs(py - my)
+            if _distance < current_distance:
+                grid[my][mx] = "."
+                grid[ny][nx] = tile
+                occupied.remove((mx, my))
+                occupied.add((nx, ny))
+                mx, my = nx, ny
+                moved = True
+
+        remaining = chase_turns - 1
+        if moved and monster_has_line_of_sight(grid, mx, my, px, py):
+            remaining = MONSTER_CHASE_TURNS
+        if remaining > 0:
+            updated_chase[f"{mx},{my}"] = remaining
+
+    chase_map[floor_key] = updated_chase
+    if seen_names:
+        unique_names = []
+        for name in seen_names:
+            if name not in unique_names:
+                unique_names.append(name)
+        if len(unique_names) == 1:
+            state["message"] = f"A {unique_names[0]} spots you!"
+        else:
+            state["message"] = "Monsters spot you!"
+
+
+def advance_world(state: Dict[str, object]) -> None:
+    move_monsters(state)
+    use_current_tile(state)
+
+
+def draw_scene(stdscr, state: Dict[str, object]) -> None:
     grid = current_grid(state)
     height, width = stdscr.getmaxyx()
     stdscr.erase()
@@ -898,6 +1160,10 @@ def draw_scene(stdscr, state: Dict[str, object], has_joy: bool = False) -> None:
         width,
         view_height,
         state.get("wall_textures"),
+        state.get("floor_texture"),
+        state.get("ceiling_texture"),
+        state.get("animated_sprites"),
+        int(state.get("action_count", 0)),
     ):
         if 1 <= y < height - 3 and 0 <= x < width:
             try:
@@ -937,16 +1203,18 @@ def find_start_position(floors: List[Grid]) -> Tuple[int, int, int]:
     return 0, 1, 1
 
 
-def run(stdscr) -> int:
+def run(stdscr, color_mode: str = COLOR_MODE_256) -> int:
     curses.curs_set(0)
-    stdscr.timeout(50)
     stdscr.nodelay(False)
     stdscr.keypad(True)
-    setup_colors()
+    setup_colors(color_mode)
 
     floors = load_floors()
     start_floor, start_x, start_y = find_start_position(floors)
     wall_textures = load_wall_textures()
+    floor_texture = load_surface_texture(FLOOR_TEXTURE_FILE)
+    ceiling_texture = load_surface_texture(CEILING_TEXTURE_FILE)
+    animated_sprites = load_animated_sprites()
     state: Dict[str, object] = {
         "floors": floors,
         "floor": start_floor,
@@ -961,47 +1229,18 @@ def run(stdscr) -> int:
         "message": f"Loaded dungeon from {DB_PATH.name}. Find the {QUEST_ITEM_NAME} on floor {QUEST_START_FLOOR + 1} and bring it to the altar on floor {QUEST_TARGET_FLOOR + 1}. Beware of rats, skeletons, and ogres.",
         "show_congrats_banner": False,
         "wall_textures": wall_textures,
+        "floor_texture": floor_texture,
+        "ceiling_texture": ceiling_texture,
+        "animated_sprites": animated_sprites,
+        "action_count": 0,
+        "monster_chase": {},
     }
     collect_tile(state, current_grid(state))
 
-    gamepad = get_gamepad()
-    has_joy = gamepad is not None
-    joy_state = {"up": False, "down": False, "left": False, "right": False}
-
     while True:
-        draw_scene(stdscr, state, has_joy)
+        draw_scene(stdscr, state)
         stdscr.refresh()
         key = stdscr.getch()
-
-        # Poll Gamepad
-        if has_joy:
-            try:
-                for event in gamepad.read():
-                    if event.type == evdev.ecodes.EV_ABS:
-                         # 8-bit DualSense: 0-255, center 128
-                         val = event.value
-                         if event.code == evdev.ecodes.ABS_Y: # Left Stick Y
-                             if val < 80: key = curses.KEY_UP
-                             elif val > 170: key = curses.KEY_DOWN
-                         elif event.code == evdev.ecodes.ABS_X: # Left Stick X
-                             if val < 80: key = curses.KEY_LEFT
-                             elif val > 170: key = curses.KEY_RIGHT
-                         elif event.code == evdev.ecodes.ABS_HAT0X: # D-Pad X
-                             if event.value == -1: key = curses.KEY_LEFT
-                             elif event.value == 1: key = curses.KEY_RIGHT
-                         elif event.code == evdev.ecodes.ABS_HAT0Y: # D-Pad Y
-                             if event.value == -1: key = curses.KEY_UP
-                             elif event.value == 1: key = curses.KEY_DOWN
-                    elif event.type == evdev.ecodes.EV_KEY and event.value == 1:
-                         if event.code == evdev.ecodes.BTN_SOUTH: key = ord(" ")
-                         elif event.code == evdev.ecodes.BTN_EAST: key = ord(".")
-                         elif event.code == evdev.ecodes.BTN_NORTH: key = ord("m")
-                         elif event.code == evdev.ecodes.BTN_SELECT: key = ord("x")
-            except:
-                pass
-
-        if key == -1:
-            continue
 
         if bool(state.get("show_congrats_banner")):
             state["show_congrats_banner"] = False
@@ -1009,51 +1248,77 @@ def run(stdscr) -> int:
                 break
             continue
 
-        if key in (ord("x"), ord("X"), 27): # ESC
+        acted = False
+        if key in (ord("x"), ord("X")):
             break
         if key in (ord("q"), ord("Q")):
             state["facing"] = (int(state["facing"]) - 1) % 4
             state["message"] = "You turn left."
+            acted = True
         elif key in (ord("e"), ord("E")):
             state["facing"] = (int(state["facing"]) + 1) % 4
             state["message"] = "You turn right."
+            acted = True
         elif key in (curses.KEY_UP, ord("w"), ord("W")):
             old_pos = (state["x"], state["y"])
             try_move(state, 1)
             state["message"] = "You move forward." if old_pos != (state["x"], state["y"]) else "A wall blocks your way."
+            acted = True
         elif key in (curses.KEY_DOWN, ord("s"), ord("S")):
             old_pos = (state["x"], state["y"])
             try_move(state, -1)
             state["message"] = "You move backward." if old_pos != (state["x"], state["y"]) else "You cannot move there."
-        elif key in (curses.KEY_LEFT, ord("z"), ord("Z")):
+            acted = True
+        elif key in (ord("z"), ord("Z")):
             old_pos = (state["x"], state["y"])
             try_strafe(state, -1)
             state["message"] = "You sidestep left." if old_pos != (state["x"], state["y"]) else "Blocked on the left."
-        elif key in (curses.KEY_RIGHT, ord("c"), ord("C")):
+            acted = True
+        elif key in (ord("c"), ord("C")):
             old_pos = (state["x"], state["y"])
             try_strafe(state, 1)
             state["message"] = "You sidestep right." if old_pos != (state["x"], state["y"]) else "Blocked on the right."
+            acted = True
         elif key in (ord("m"), ord("M")):
             state["show_map"] = not bool(state["show_map"])
             state["message"] = f"Map {'shown' if state['show_map'] else 'hidden'}."
+            acted = True
         elif key in (ord("."),):
             state["energy"] = min(MAX_ENERGY, int(state["energy"]) + WAIT_ENERGY_GAIN)
             state["message"] = "You wait and regain a little energy."
+            acted = True
         elif key in (ord(" "), ord("\n")):
             state["message"] = use_action(state)
+            acted = True
         elif key == ord(">"):
             state["message"] = travel_stairs(state, 1)
+            acted = True
         elif key == ord("<"):
             state["message"] = travel_stairs(state, -1)
+            acted = True
 
-        use_current_tile(state)
+        if acted:
+            state["action_count"] = int(state.get("action_count", 0)) + 1
+            advance_world(state)
 
     return 0
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Play Dungeona in curses.")
+    parser.add_argument(
+        "--color-mode",
+        choices=(COLOR_MODE_256, COLOR_MODE_GRAY16),
+        default=COLOR_MODE_256,
+        help="Use the original 256-color palette or a 16-color grayscale palette.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
     initialize_map_db(DB_PATH)
-    return curses.wrapper(run)
+    return curses.wrapper(lambda stdscr: run(stdscr, args.color_mode))
 
 
 if __name__ == "__main__":

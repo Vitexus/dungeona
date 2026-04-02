@@ -1,0 +1,540 @@
+Dungeona graphics engine notes
+==============================
+
+This file describes how graphics are built in three modules from the Dungeona project:
+- dungeona.py
+- dungeona_gui.py
+- dungeona_ren.py
+
+The descriptions are detailed, but kept simple and practical.
+
+
+Shared idea used by all three files
+-----------------------------------
+
+All three modules use the same basic visual model.
+
+1. The dungeon is a 2D grid of map cells.
+   Walls, doors, monsters, stairs, the grail, and the altar are all stored as characters in that grid.
+
+2. The player stands in the middle of one grid cell and faces north, east, south, or west.
+   The engine converts that facing direction into a forward vector and a camera plane.
+   This is the classic structure used by simple ray-casting engines.
+
+3. For every screen column, the engine casts one ray into the map.
+   That ray walks through the grid until it hits a wall or door.
+   From that hit, the engine learns:
+   - how far away the surface is,
+   - whether the hit was on a vertical or horizontal side,
+   - where along the wall texture the hit happened.
+
+4. The height of the wall slice is computed from distance.
+   Near walls are tall. Far walls are short.
+
+5. Floor and ceiling are drawn first, then wall columns, then sprites and overlays.
+   Sprites include monsters, stairs, the grail, and the altar.
+
+6. All three versions use ANSI texture files for art.
+   These texture files are sampled and converted into something each frontend can draw:
+   - terminal characters in dungeona.py,
+   - solid-color canvas rectangles in dungeona_gui.py,
+   - solid-color canvas rectangles in dungeona_ren.py.
+
+7. All three versions also draw a minimap and a status panel.
+
+So the real difference between the files is not the world model. The difference is how each frontend turns the same scene data into visible pixels or characters.
+
+
+1) dungeona.py
+---------------
+
+What it is
+~~~~~~~~~~
+
+This is the core terminal renderer. It uses curses and draws directly into a text terminal.
+The screen is not a bitmap. Instead, the engine builds a list of character cells to paint, where each item is:
+
+- y position
+- x position
+- character to display
+- color-pair number
+
+The renderer then sends those items to curses with addch().
+
+Main graphics style
+~~~~~~~~~~~~~~~~~~~
+
+The look is a text-mode pseudo-3D dungeon.
+Walls are vertical strips made of characters like block shades and line symbols.
+Floor and ceiling are textured with repeating ANSI art, but the final result still appears as terminal characters.
+Monsters and items are drawn as small ASCII-style sprites scaled by distance.
+
+Main graphics pipeline
+~~~~~~~~~~~~~~~~~~~~~~
+
+A. Color setup
+
+The file starts by configuring terminal colors.
+It supports both a 256-color mode and a smaller 16-gray fallback mode.
+This is important because the engine depends on curses color pairs rather than free-form RGB values.
+
+B. Texture loading
+
+The renderer loads:
+- wall textures from texture files such as wall.ans and door.ans,
+- floor and ceiling textures,
+- animated rat frames.
+
+If a texture file is missing or fails to load, the engine falls back to simple character shading.
+That fallback behavior makes the engine robust in plain terminals.
+
+C. Ray casting
+
+The heart of the 3D effect is cast_perspective_ray().
+It uses a grid stepping method similar to DDA:
+- start from the player position,
+- move from cell boundary to cell boundary,
+- stop when a solid tile is hit,
+- return the hit distance and hit location.
+
+That returned information is later used to decide how tall a wall strip should be and which part of the texture to sample.
+
+D. Floor and ceiling pass
+
+render_view() starts by filling the upper half with ceiling characters and the lower half with floor characters.
+If floor or ceiling textures exist, it samples repeating texture coordinates so the pattern scrolls with perspective.
+If not, it falls back to simple shading characters.
+
+This is not a mathematically exact textured floor-caster. It is a lightweight fake perspective pass.
+But visually it gives a good dungeon feel at low cost.
+
+E. Wall pass
+
+After the floor and ceiling are placed, render_view() loops across the screen width one column at a time.
+For each column it:
+- computes a camera-space x value from -1 to 1,
+- builds the ray direction,
+- casts the ray,
+- computes wall slice height from distance,
+- samples the wall texture vertically.
+
+If a wall texture exists, texture_char_for_column() picks a character from the proper x and y ratio inside that texture.
+If there is no texture, wall_char() chooses a shading character based on distance and side.
+
+Doors are treated specially:
+- they use a different color,
+- they add a central band so they read as doors rather than plain walls.
+
+Walls hit on one side are darkened by choosing weaker block characters.
+That gives a simple side-lighting effect.
+
+F. Sprite pass
+
+After walls, the engine adds sprite-like overlays:
+- monsters,
+- grail,
+- altar,
+- stairs.
+
+These are not true 3D textured billboards.
+Instead they are small character drawings that are scaled according to distance.
+The engine picks the visible object in front of the player and positions the sprite left, center, or right based on the side offset.
+
+Monster rendering is especially simple and effective:
+- each monster type has a tiny sprite,
+- rats can swap between multiple frames for animation,
+- the sprite is enlarged when near and shrunk when far.
+
+G. Scene composition
+
+render_view() returns one flat list of draw items.
+Then draw_scene() sends each item to the terminal, applies bold to important colors, and adds:
+- title text,
+- help text,
+- energy bar and status line,
+- message line,
+- optional minimap,
+- optional congratulation banner.
+
+How the minimap works
+~~~~~~~~~~~~~~~~~~~~~
+
+The minimap is a 2D top-down overlay.
+It does not use the 3D engine.
+Each nearby map tile is shown using two terminal characters.
+Walls, doors, monsters, quest objects, stairs, and the player direction arrow all have their own symbols and colors.
+
+Why this engine works well
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Very small and portable.
+- Gives a real first-person feeling in a terminal.
+- Uses textures without requiring a pixel framebuffer.
+- Keeps rendering logic separate from game logic.
+- Easy to expand because render_view() is a clear central pipeline.
+
+Main limitations
+~~~~~~~~~~~~~~~~
+
+- It is column-based and simple, so it cannot do modern 3D effects.
+- Sprites are not depth-sorted against each other in a full general way.
+- Floor and ceiling perspective are approximate rather than fully physical.
+- Final color control is limited by curses.
+
+In short: dungeona.py is a classic text-mode ray-casting renderer with ANSI-texture support and sprite overlays.
+
+
+2) dungeona_gui.py
+-------------------
+
+What it is
+~~~~~~~~~~
+
+This file is a Tkinter canvas frontend for the same dungeon engine.
+It keeps the same world simulation and most of the same rendering math, but instead of drawing terminal characters it draws colored rectangles on a canvas.
+
+The result is not a tile map and not a real pixel renderer.
+It is better described as a cell-based software renderer built on Tkinter shapes.
+
+Main graphics style
+~~~~~~~~~~~~~~~~~~~
+
+The scene is still a first-person dungeon, but it looks smoother than the terminal version because each logical cell is turned into a filled rectangle.
+ANSI textures are converted into color fills, so block symbols like ▓ and ░ become blended shades rather than visible characters.
+That makes the scene feel more like chunky pixel art than text art.
+
+Layout model
+~~~~~~~~~~~~
+
+This renderer uses:
+- a fixed logical cell size of 8x8 pixels,
+- a scene area inside margins,
+- a status strip below the main view,
+- a minimap overlay in the corner.
+
+The window can resize, but the logical cell size stays fixed.
+When the canvas gets bigger, the engine increases the number of visible cells instead of scaling each cell.
+So the player sees more scene area rather than larger pixels.
+
+Important engine idea: color fields, not characters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The biggest change from dungeona.py is that the GUI renderer does not mainly think in terms of characters.
+Instead, it turns the scene into a 2D array of fill colors.
+
+That happens like this:
+- ANSI texture cells are converted to hex colors.
+- A whole frame becomes rows of optional fill colors.
+- Neighboring cells with the same color are merged into horizontal runs.
+- Each run becomes one canvas rectangle.
+
+This is a smart design choice because Tkinter is slow if you create too many tiny objects.
+Merging same-color cells into runs reduces object count a lot.
+
+Main graphics pipeline
+~~~~~~~~~~~~~~~~~~~~~~
+
+A. Static and dynamic layers
+
+The renderer separates the scene into cached and non-cached parts.
+Its cache stores:
+- background layer,
+- frame/crosshair layer,
+- converted texture rows,
+- precomputed floor and ceiling rows,
+- previously rendered scene runs.
+
+This matters because many parts of the screen do not change every keypress.
+Caching keeps the Tkinter version responsive.
+
+B. Background layer
+
+ensure_background_layer() paints broad horizontal bands.
+The upper part becomes a dark ceiling color.
+The lower part becomes a floor gradient.
+This creates a base atmosphere even before walls are drawn.
+
+C. Frame layer
+
+ensure_frame_layer() draws the border around the main view and a small center reticle.
+This gives the GUI version a clear viewport and a slightly game-like presentation.
+
+D. ANSI texture conversion
+
+texture_cell_fill() converts an ANSI cell into one final color.
+This method interprets the meaning of block characters:
+- full blocks become foreground color,
+- spaces become background color,
+- shaded blocks become blends between background and foreground,
+- light punctuation becomes weak blends.
+
+This is a very important part of the engine.
+It is how text-mode art becomes a colored rectangle field.
+
+E. Floor and ceiling generation
+
+surface_fill_rows() builds the ceiling and floor color rows ahead of the wall pass.
+It repeats the floor and ceiling textures across the screen and darkens or brightens them depending on depth.
+
+This gives a textured base scene before walls are added.
+The data is cached so it does not have to be rebuilt every time unless the view size or texture identity changes.
+
+F. Wall pass
+
+compute_scene_rects() performs the same ray-casting loop as the terminal renderer.
+For each screen column it:
+- finds the ray hit,
+- computes the wall slice height,
+- samples the correct column from the wall texture,
+- shades the sampled color,
+- writes the result into the fill-row buffer.
+
+If no texture is available, it falls back to the same symbolic wall logic as dungeona.py, then maps the symbol to a color through char_fill().
+
+So this renderer still respects the original text renderer design, but translates it into colored geometry.
+
+G. Overlay sprite pass
+
+After the wall pass, the GUI version uses the same helper functions from dungeona.py to place monsters, stairs, altar, and grail into an overlay item list.
+Those helpers still return character-style sprite shapes.
+The GUI then converts each sprite character into a color fill and writes it into the color buffer.
+
+This means the GUI frontend reuses the original sprite logic instead of inventing a separate billboard system.
+
+H. Extra detail art pass
+
+On top of the shared sprite pass, dungeona_gui.py adds special close-up detail art:
+- draw_monster_detail_art()
+- draw_item_detail_art()
+
+These functions build monsters and quest items from rectangles and ovals directly on the canvas.
+They use custom palettes, shadows, highlights, glow effects, and large simple shapes.
+
+This is one of the biggest visual upgrades in the GUI version.
+Instead of only showing tiny ASCII-like sprites, the frontend paints larger stylized figures when something is visible in front of the player.
+
+I. Run batching and final draw
+
+Once the frame buffer exists as color rows, fill_rows_to_runs() compresses adjacent identical colors into runs.
+Then create_batched_rectangles() draws one canvas rectangle per run.
+
+This is effectively the GUI renderer’s equivalent of “blitting.”
+It is not using images. It is using many rectangles efficiently.
+
+J. HUD and overlays
+
+The GUI version draws:
+- a minimap panel,
+- an energy bar,
+- floor/position/facing text,
+- inventory and grail status,
+- message text,
+- key help text,
+- a congratulations overlay.
+
+All of these are direct Tkinter canvas items layered above the scene.
+
+How the minimap works
+~~~~~~~~~~~~~~~~~~~~~
+
+The minimap is a small 9x9 area centered on the player.
+Each tile is a colored square.
+Different map contents get different colors.
+The player is drawn as a green circle with a facing line.
+
+Compared with the terminal minimap, this is more graphic and easier to read.
+
+Why this engine works well
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Reuses the proven math from dungeona.py.
+- Converts ANSI art into color fills cleanly.
+- Uses caching to make Tkinter practical.
+- Uses horizontal run batching to reduce canvas objects.
+- Adds attractive close-up art without changing the core game logic.
+
+Main limitations
+~~~~~~~~~~~~~~~~
+
+- It still works on a coarse logical grid, not true pixels.
+- Tkinter canvas rectangles are heavier than a real game renderer.
+- It is still largely a column renderer with sprite overlays, not a full 3D engine.
+
+In short: dungeona_gui.py is a color-rectangle Tkinter ray-caster that reuses the core dungeon math and adds caching plus decorative canvas artwork.
+
+
+3) dungeona_ren.py
+-------------------
+
+What it is
+~~~~~~~~~~
+
+This file is another Tkinter renderer, but it is built around a more flexible scaled viewport.
+It keeps almost the same rendering logic as dungeona_gui.py, but it is organized more like a resizable renderer.
+
+Despite the filename, this is not a Ren'Py renderer.
+It is still a Tkinter canvas-based frontend.
+
+Main graphics style
+~~~~~~~~~~~~~~~~~~~
+
+Visually, it is very close to the GUI version:
+- first-person dungeon view,
+- color-rectangle rendering,
+- textured walls/floor/ceiling,
+- minimap and HUD,
+- large detail art for visible monsters and quest objects.
+
+The key difference is that this version scales its logical cell size with the window.
+So resizing the window changes the apparent size of the rendered blocks instead of only expanding the visible scene area.
+
+Layout and scaling model
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The renderer starts with:
+- a 640x400 window,
+- a 64-pixel status strip,
+- 4x4 pixel logical cells,
+- a render scale from 1 to 4.
+
+update_render_metrics() recalculates:
+- window width and height,
+- status height,
+- visible 3D view height,
+- render scale,
+- logical cell width and height,
+- minimap tile size,
+- count of horizontal and vertical scene cells.
+
+This gives the renderer a more adaptive feel than dungeona_gui.py.
+It behaves more like a small software renderer that chooses a render scale to fit the window.
+
+Main graphics pipeline
+~~~~~~~~~~~~~~~~~~~~~~
+
+A. Same buffer idea as the GUI version
+
+Like dungeona_gui.py, this renderer converts the scene into fill rows and then compresses those rows into runs of equal color.
+Those runs are finally drawn as canvas rectangles.
+
+So the engine still works as a software rasterizer over a logical grid, not as an image blitter.
+
+B. Same texture interpretation
+
+It uses the same important rules for turning ANSI texture cells into colors:
+- foreground and background become hex colors,
+- block characters become stronger fills,
+- shaded characters become blended fills,
+- spaces show the background.
+
+That means the same ANSI texture assets can be reused naturally in the resizable frontend.
+
+C. Distance shading helper
+
+One extra cleanup in this file is distance_shade_factor().
+This function centralizes how surfaces are darkened with depth and side hits.
+
+That makes the rendering rules a little easier to reason about than in the GUI version, because the shading formula is named and reused.
+It also shades fallback wall colors after char_fill(), which keeps texture and non-texture walls visually more consistent.
+
+D. Surface cache
+
+Like the GUI version, it caches:
+- converted texture rows,
+- repeated floor/ceiling fill rows,
+- background and frame layers,
+- the last rendered scene key.
+
+This is important because resizing a Tkinter window could otherwise trigger expensive full rebuilds too often.
+
+E. Wall pass
+
+compute_scene_rects() is again the main 3D scene builder.
+It follows the same ray-casting loop:
+- one ray per screen column,
+- detect wall or door hit,
+- derive wall height,
+- sample texture by hit coordinate,
+- apply distance shading,
+- write the resulting color into the frame buffer.
+
+Doors keep their special visual treatment.
+Side-hit walls are darkened.
+A light ceiling edge line is added just above the wall top for depth separation.
+
+F. Reused sprite system plus detailed overlays
+
+The file reuses dungeona.render_stairs_sprite(), render_grail_sprite(), render_altar_sprite(), and render_monster_sprite() to place symbolic overlays into the buffer.
+Then it adds large canvas-based detail art just like dungeona_gui.py.
+
+So the final scene is built from two sprite layers:
+- the shared compact sprite logic from the core module,
+- the frontend-specific big stylized canvas art.
+
+G. Full-scene composition
+
+The final draw order is:
+- background layer,
+- frame layer,
+- main 3D scene,
+- monster detail art,
+- item detail art,
+- overlay items like minimap and HUD,
+- congratulations panel.
+
+This layered structure makes the code easy to read and easy to extend.
+
+How the minimap works
+~~~~~~~~~~~~~~~~~~~~~
+
+The minimap is the same general idea as the GUI version, but its tile size scales with render_scale.
+So the map grows or shrinks with the rest of the window presentation.
+This keeps the UI visually balanced after resize.
+
+Why this engine works well
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Keeps the strong reusable core logic from dungeona.py.
+- Adapts cleanly to window resizing.
+- Uses scaling rules instead of a single fixed scene cell size.
+- Keeps texture and fallback shading consistent.
+- Reuses the efficient run-compression approach from the GUI version.
+
+Main limitations
+~~~~~~~~~~~~~~~~
+
+- Still based on a coarse cell raster, not per-pixel rendering.
+- Tkinter remains the bottleneck for very large scenes.
+- Shares the same basic geometric simplifications as the other frontends.
+
+In short: dungeona_ren.py is a resizable Tkinter software-style renderer that takes the GUI version’s ideas and organizes them around dynamic scaling.
+
+
+Short comparison
+----------------
+
+dungeona.py
+  Best described as a terminal ray-caster.
+  Output format: characters plus curses colors.
+
+dungeona_gui.py
+  Best described as a fixed-cell Tkinter canvas renderer.
+  Output format: grouped colored rectangles plus decorative vector-style overlays.
+
+dungeona_ren.py
+  Best described as a resizable/scaled Tkinter canvas renderer.
+  Output format: grouped colored rectangles plus decorative vector-style overlays.
+
+
+Bottom line
+-----------
+
+The project has one main rendering idea and three presentations of it.
+
+- dungeona.py is the original text-mode 3D engine.
+- dungeona_gui.py turns that engine into a colored canvas renderer with fixed-size logical cells and extra art.
+- dungeona_ren.py keeps the same visual strategy but makes the presentation more adaptive through render scaling.
+
+All three are simple engines, but they are well structured:
+shared game logic, shared visibility math, shared texture assets, and frontend-specific drawing code.
+

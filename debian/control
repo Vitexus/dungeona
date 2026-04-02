@@ -1,0 +1,25 @@
+Source: dungeona
+Section: games
+Priority: optional
+Maintainer: Vítězslav Dvořák <info@vitexsoftware.cz>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all
+Standards-Version: 4.7.0
+Homepage: https://github.com/mtatton/dungeona
+Rules-Requires-Root: no
+#Vcs-Git: https://salsa.debian.org/debian/dungeona.git
+#Vcs-Browser: https://salsa.debian.org/debian/dungeona
+
+Package: dungeona
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, libncursesw6, libsqlite3-0
+Suggests: dungeona-gui
+Description: lightweight dungeon game and editor (Python)
+ Dungeona is a small dungeon-crawling game with a simple map editor,
+ featuring terminal (curses) rendering and ANSI texture support.
+
+Package: dungeona-gui
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, dungeona (= ${binary:Version}), python3-tk
+Description: Tkinter GUI frontends for dungeona
+ Graphical frontends for the Dungeona dungeon crawler using Tkinter.
+ Provides dungeona-gui (canvas-based GUI) and dungeona-ren (cell renderer).

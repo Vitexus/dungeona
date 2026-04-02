@@ -1,5 +1,6 @@
 import argparse
 import curses
+import os
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -11,8 +12,23 @@ DrawItem = Tuple[int, int, str, int]
 FloorMap = List[str]
 Grid = List[List[str]]
 
-DB_PATH = Path(__file__).with_name("dungeon_map.db")
-TEXTURE_DIR = Path(__file__).with_name("textures")
+
+def _get_user_db_path() -> Path:
+    """Return a per-user writable path for the dungeon database."""
+    xdg = os.environ.get('XDG_DATA_HOME')
+    if xdg:
+        data_dir = Path(xdg)
+    else:
+        data_dir = Path.home() / '.local' / 'share'
+    d = data_dir / 'dungeona'
+    d.mkdir(parents=True, exist_ok=True)
+    return d / 'dungeon_map.db'
+
+DB_PATH = _get_user_db_path()
+
+_SYSTEM_TEXTURE_DIR = Path("/usr/lib/dungeona/textures")
+_LOCAL_TEXTURE_DIR = Path(__file__).with_name("textures")
+TEXTURE_DIR = _SYSTEM_TEXTURE_DIR if _SYSTEM_TEXTURE_DIR.exists() else _LOCAL_TEXTURE_DIR
 WALL_TEXTURE_FILES = {
     "#": "wall.ans",
     "D": "door.ans",

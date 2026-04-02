@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with python3
+
+override_dh_install:
+	chmod 755 debian/usrbin/dungeona debian/usrbin/dungeona-editor debian/usrbin/dungeona-gui debian/usrbin/dungeona-ren || true
+	dh_install

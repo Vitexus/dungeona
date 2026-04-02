@@ -1,0 +1,39 @@
+dungeona (0.4.0) trixie; urgency=medium
+
+  * Merge upstream version 019.
+  * Add Tkinter GUI frontend (dungeona_gui.py) and alternate renderer
+    (dungeona_ren.py).
+  * Add ANSI textures for altar, grail, ogre, skeleton, floor, ceiling.
+  * Add animated rat sprite frames (rat001-003.ans).
+  * Add --color-mode CLI flag (256-color / 16-color grayscale).
+  * Add monster pursuit AI with line-of-sight detection.
+  * Add ceiling and floor texture rendering.
+  * Safer curses color initialization (_safe_init_pair) for limited terminals.
+  * Remove evdev gamepad dependency (dropped upstream).
+  * Add python3-tk as suggested dependency for GUI frontends.
+  * Split GUI frontends into separate dungeona-gui package.
+  * Update Homepage to upstream GitHub URL.
+  * Ensure compatibility with Debian 13 (Trixie) and Python 3.13.
+
+ -- Vítězslav Dvořák <info@vitexsoftware.cz>  Tue, 01 Apr 2026 12:00:00 +0200
+
+dungeona (0.3.0) trixie; urgency=medium
+
+  * multi level
+
+ -- vitex <info@vitexsoftware.cz>  Fri, 27 Mar 2026 00:10:27 +0100
+
+dungeona (0.2.0-1) trixie; urgency=low
+
+  [ Jules ]
+  * Merge upstream version with multi-floor support.
+  * Update scripts to use per-user database path natively.
+  * Target Debian 13 (Trixie).
+
+ -- vitex <info@vitexsoftware.cz>  Wed, 25 Mar 2026 22:36:26 +0100
+
+dungeona (0.1.0-1) unstable; urgency=low
+
+  * Initial Debian package.
+
+ -- Vítězslav Dvořák <info@vitexsoftware.cz>  Tue, 24 Mar 2026 15:06:58 +0100

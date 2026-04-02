@@ -32,6 +32,7 @@ What's New in This Build
 
 Project Structure
 -----------------
+```
 dungeona.py          Terminal (curses) game
 dungeona_gui.py      Tkinter GUI frontend
 dungeona_ren.py      Alternate Tkinter renderer
@@ -41,6 +42,7 @@ dungeon_map.db       SQLite dungeon storage
 textures/            ANSI assets (walls, monsters, items, environment)
 license.txt          License
 readme.txt           Documentation
+```
 
 Textures Included
 -----------------

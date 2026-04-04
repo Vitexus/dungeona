@@ -121,13 +121,11 @@ class Dungeona2:
         self.trimmed_texture_cache: Dict[Tuple[object, ...], Tuple[Tuple[AnsiCell, ...], ...]] = {}
         self.glyph_cache: Dict[Tuple[str, RGB, int, int], "pygame.Surface"] = {}
         self.sprite_font_cache: Dict[int, "pygame.font.Font"] = {}
-        self.mouse_sensitivity = 0.0084
+        self.mouse_sensitivity = 0.0042
         self.mouse_captured = True
-        self._ignore_mousemotion_events = 0
         self.view_angle = 0.0
         self.view_pitch = 0.0
         self.max_view_pitch = 0.90
-        self.max_head_yaw = math.radians(72.0)
         self.ansi_sprite_assets = self.load_ansi_sprite_assets()
         self.resize(self.window_width, self.window_height)
 
@@ -912,7 +910,6 @@ class Dungeona2:
             return
         try:
             rect = self.screen.get_rect()
-            self._ignore_mousemotion_events = max(self._ignore_mousemotion_events, 2)
             pygame.mouse.set_pos(rect.center)
             pygame.mouse.get_rel()
         except Exception:
@@ -999,8 +996,10 @@ class Dungeona2:
     def handle_mousemotion(self, event: "pygame.event.Event") -> None:
         if not self.mouse_captured:
             return
-        if self._ignore_mousemotion_events > 0:
-            self._ignore_mousemotion_events -= 1
+        pos = getattr(event, "pos", None)
+        if pos is not None and len(pos) >= 2 and pos[1] <= 1:
+            self.set_mouse_capture(False)
+            self.state["message"] = "Mouse released for window controls. Click in the game to recapture."
             return
         rel = getattr(event, "rel", (0, 0))
         if not rel:
@@ -1008,15 +1007,10 @@ class Dungeona2:
         delta_x = float(rel[0])
         delta_y = float(rel[1])
         if abs(delta_x) >= 0.01:
-            body_angle = self.facing_to_angle(int(self.state["facing"]))
-            candidate_angle = self.normalize_angle(self.view_angle + delta_x * self.mouse_sensitivity)
-            yaw_offset = self.normalize_angle(candidate_angle - body_angle)
-            yaw_offset = max(-self.max_head_yaw, min(self.max_head_yaw, yaw_offset))
-            self.view_angle = self.normalize_angle(body_angle + yaw_offset)
+            self.view_angle = self.normalize_angle(self.view_angle + delta_x * self.mouse_sensitivity)
+            self.sync_facing_to_view_angle()
         if abs(delta_y) >= 0.01:
             self.view_pitch = max(-self.max_view_pitch, min(self.max_view_pitch, self.view_pitch - delta_y * self.mouse_sensitivity))
-        if abs(delta_x) >= 0.01 or abs(delta_y) >= 0.01:
-            self.center_mouse()
 
     def run(self) -> int:
         running = True
@@ -1027,12 +1021,14 @@ class Dungeona2:
                 elif event.type == pygame.VIDEORESIZE:
                     self.screen = pygame.display.set_mode((max(800, event.w), max(600, event.h)), pygame.RESIZABLE)
                     self.resize(event.w, event.h)
-                    if self.mouse_captured:
-                        self.center_mouse()
                 elif event.type == pygame.KEYDOWN:
                     running = self.handle_keydown(event)
                     if not running:
                         break
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if (not self.mouse_captured) and getattr(event, "button", None) == 1:
+                        self.set_mouse_capture(True)
+                        self.state["message"] = "Mouse look enabled."
                 elif event.type == pygame.MOUSEMOTION:
                     self.handle_mousemotion(event)
 

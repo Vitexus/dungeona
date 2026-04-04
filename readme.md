@@ -123,6 +123,99 @@ Terminal Settings Note
 
 https://asciinema.org/a/zGX38RkA7C9AzoRF
 
+DUNGEONA2
+=========
+
+Version
+-------
+README for dungeona2.py
+
+Overview
+--------
+Dungeona2 is the Pygame/SDL frontend for Dungeona.
+
+It reuses the game rules from dungeona.py and the ANSI texture parser from
+ans.py, then renders the pseudo-3D dungeon view to a low-resolution software
+surface that is scaled up for a chunky retro look.
+
+This frontend is meant for players who want the same dungeon, quest flow, and
+assets as the main project, but in a desktop window with mouse look, a status
+panel, and an optional minimap.
+
+Gameplay
+--------
+- Explore the dungeon across multiple floors
+- Find the Holy Grail
+- Bring it to the altar to complete the quest
+
+Requirements
+------------
+- Python 3.10+
+- pygame
+
+Install pygame:
+    pip install pygame
+
+Files Needed
+------------
+Run dungeona2.py from the project root so it can access the files it imports
+and the game data used by the project.
+
+Typical required files and folders:
+```
+    dungeona.py
+    ans.py
+    textures/
+    dungeon_map.db
+```
+
+How To Run
+----------
+Standard window:
+    python dungeona2.py
+
+Start in fullscreen:
+    python dungeona2.py --fullscreen
+
+Example with custom size and frame cap:
+    python dungeona2.py --width 1600 --height 900 --fps 60
+
+Command-Line Options
+--------------------
+```
+--width        Initial window width (default: 1280)
+--height       Initial window height (default: 800)
+--fps          Frame cap for the renderer (default: 30)
+--fullscreen   Start in fullscreen mode
+```
+
+Controls
+--------
+```
+Mouse:         Look around
+W / Up:        Move forward
+S / Down:      Move backward
+A / Left / Z:  Strafe left
+D / Right / C: Strafe right
+Q / E:         Turn left / right
+Space / Enter: Interact / attack / open
+.:             Wait and regain energy
+M:             Toggle minimap
+< / >:         Use stairs
+Tab:           Capture / release mouse look
+X / Esc:       Quit
+```
+
+Notes
+-----
+- The game window is resizable.
+- The renderer uses a low-resolution internal view that is scaled up for a
+  retro look.
+- If pygame is not installed, the program exits with an install hint.
+- In this frontend, Left/Right arrows strafe. Turning is on Q and E.
+- The frontend uses the same core game rules and map data as the main Dungeona
+  game.
+
 License
 -------
 Donationware License (see license.txt)

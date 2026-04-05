@@ -216,6 +216,70 @@ Notes
 - The frontend uses the same core game rules and map data as the main Dungeona
   game.
 
+DUNGEONA3
+=========
+
+Version
+-------
+README for dungeona3.py
+
+Overview
+--------
+Dungeona3 is an experimental modernized frontend for Dungeona, focusing on
+improved rendering performance, smoother input handling, and expanded visual
+feedback while preserving the core gameplay and dungeon structure.
+
+It builds upon the same game logic defined in dungeona.py and continues to use
+the ANSI texture pipeline from ans.py, but introduces a more flexible rendering
+layer designed for future extensions such as lighting effects, UI overlays,
+and scalable resolutions.
+
+This version is intended as a bridge between the retro aesthetic of the original
+project and a more responsive, real-time gameplay experience.
+
+GPU Usage
+---------
+Dungeona3 introduces optional GPU-accelerated rendering through the underlying
+graphics backend, allowing smoother frame updates and more efficient handling
+of larger resolutions. While the core game logic remains CPU-driven, rendering
+operations such as texture scaling, screen compositing, and visual updates can
+be offloaded to the GPU when supported. This results in reduced CPU load and
+improved responsiveness, especially on high-resolution displays or systems with
+dedicated graphics hardware. On systems without GPU support, the game falls back
+to a fully CPU-based rendering path with no loss of functionality.
+
+Gameplay
+--------
+- Explore the same multi-floor dungeon environment
+- Locate the Holy Grail
+- Return it safely to the altar
+- Encounter monsters with improved movement responsiveness
+
+Compared to earlier frontends, Dungeona3 emphasizes smoother navigation,
+clearer visual feedback, and a more immersive presentation.
+
+Features
+--------
+- Enhanced rendering pipeline for smoother frame updates
+- Scalable resolution support
+- Improved input responsiveness
+- Reusable ANSI texture system
+- Compatible with existing dungeon maps and assets
+- Modular structure for future extensions (UI, effects, audio)
+
+Requirements
+------------
+- Python 3.10+
+- pygame (or compatible rendering backend, depending on build)
+
+Install dependencies:
+    pip install pygame
+
+Files Needed
+------------
+Run dungeona3.py from the project root to ensure access to shared resources:
+
+
 License
 -------
 Donationware License (see license.txt)

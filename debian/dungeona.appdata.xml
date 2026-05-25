@@ -17,7 +17,7 @@
   </launchable>
   <project_license>MIT</project_license>
   <url type="homepage">https://example.com/dungeona</url>
-  <icon>dungeona</icon>
+  <icon type="stock">dungeona</icon>
   <metadata_license>CC0-1.0</metadata_license>
   <developer_name>mtatton</developer_name>
   <screenshots>
